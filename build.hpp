@@ -114,8 +114,10 @@ inline void rebuild_yourself(fs::path bin, fs::path src) {
 }
 
 inline int run_yourself(fs::path bin) {
-    fs::path bin_path = fs::absolute(bin);
-    auto run_cmd = CMD(bin_path.string());
+    fs::path bin_path = fs::relative(bin);
+    auto run_cmd = CMD("./" + bin_path.string());
+    std::cout << std::endl;
+    log("Running...");
     return run_cmd.run();
 }
 
@@ -127,10 +129,6 @@ inline void _go_rebuild_yourself(int argc, char* argv[], path source_file_name) 
     path executable_path = fs::relative(argv[0], root);
     path source_path     = fs::relative(source_file_name, root);
     path header_path     = fs::relative(source_file_name.replace_extension(".hpp"), root);
-
-    std::cout << "Exe: " << executable_path << std::endl;
-    std::cout << "Src: " << source_path     << std::endl;
-    std::cout << "Hdr: " << header_path     << std::endl;
 
     bool rebuild_needed = false;
 
@@ -164,8 +162,7 @@ inline void _go_rebuild_yourself(int argc, char* argv[], path source_file_name) 
     rebuild_needed |= exe_mtime < hdr_mtime;
 
     if (rebuild_needed) {
-        log("\nRebuilding the executable...");
-
+        log("Rebuilding the executable...");
         rebuild_yourself(executable_path, source_path);
         exit(run_yourself(executable_path));
     }
