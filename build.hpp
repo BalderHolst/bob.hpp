@@ -44,10 +44,6 @@ public:
         }
     }
 
-    void push_str(const string &part) {
-        parts.push_back("\"" + part + "\"");
-    }
-
     string render() const {
         string result;
         for (const auto &part : parts) {
@@ -57,7 +53,7 @@ public:
         return result;
     }
 
-    int run() const {
+    int run(path root = "") const {
         if (parts.empty() || parts[0].empty()) {
             std::cerr << "No command to run." << std::endl;
             return -1;
@@ -77,6 +73,14 @@ public:
                 args.push_back(const_cast<char *>(part.c_str()));
             }
             args.push_back(nullptr);
+
+            // Set the current working directory if specified
+            if (!root.empty()) {
+                if (chdir(root.c_str()) < 0) {
+                    std::cerr << "Could not change directory to " << root << ": " << strerror(errno) << std::endl;
+                    exit(EXIT_FAILURE);
+                }
+            }
 
             if (execvp(args[0], args.data()) < 0) {
                 std::cerr << "Could not exec child process: " << strerror(errno) << std::endl;
