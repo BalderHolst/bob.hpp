@@ -1,0 +1,3 @@
+[submodule "tests/tsoding-musializer/musializer"]
+	path = tests/tsoding-musializer/musializer
+	url = https://github.com/tsoding/musializer

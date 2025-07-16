@@ -34,9 +34,18 @@ public:
 
     Cmd (vector<string> &&parts) : parts(std::move(parts)) {}
 
-    Cmd &operator<<(const string &part) {
+    void push(const string &part) {
         parts.push_back(part);
-        return *this;
+    }
+
+    void push_many(const vector<string> &parts) {
+        for (const auto &part : parts) {
+            this->parts.push_back(part);
+        }
+    }
+
+    void push_str(const string &part) {
+        parts.push_back("\"" + part + "\"");
     }
 
     string render() const {
@@ -128,7 +137,7 @@ inline void _go_rebuild_yourself(int argc, char* argv[], path source_file_name) 
 
     path executable_path = fs::relative(argv[0], root);
     path source_path     = fs::relative(source_file_name, root);
-    path header_path     = fs::relative(source_file_name.replace_extension(".hpp"), root);
+    path header_path     = __FILE__;
 
     bool rebuild_needed = false;
 

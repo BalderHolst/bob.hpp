@@ -3,8 +3,10 @@
 int main(int argc, char* argv[]) {
     go_rebuild_yourself(argc, argv);
 
-    auto cmd = CMD ("python", "-c", "exit(11)");
-    int status = cmd.run();
+    auto cmd = Cmd("echo");
+    cmd.push_str("hello!");
 
-    return status;
+    cmd.run();
+
+    return 0;
 }
