@@ -27,10 +27,8 @@ const vector<string> EXAMPLE_CFLAGS = {
     "-lm",
 };
 
-
 path build_raylib() {
-
-    create_directories(RAYLIB_BUILD_DIR);
+    dir(RAYLIB_BUILD_DIR);
 
     cout << "Building Raylib..." << endl;
     Cmd cmd({"make"});
@@ -59,12 +57,7 @@ path build_raylib() {
     }
 }
 
-void build_example(path src, path bin) {
-    if (CACHE_EXAMPLES && fs::exists(bin)) {
-        cout << "Found existing binary: " << bin << endl;
-        return;
-    }
-
+Cmd build_example_cmd(path src, path bin) {
     dir((bin).parent_path());
     Cmd cmd({"gcc", "-o", bin});
 
@@ -76,7 +69,7 @@ void build_example(path src, path bin) {
     // Headers
     cmd.push({"-I" + RAYLIB_SRC_DIR.string()});
 
-    cmd.run();
+    return cmd;
 }
 
 void build_examples(path raylib) {
@@ -84,6 +77,8 @@ void build_examples(path raylib) {
 
     vector<string> error_files;
     vector<string> error_msgs;
+
+    CmdRunner runner;
 
     for (path module_dir : fs::directory_iterator(RAYLIB_EXAMPLES_DIR)) {
         if (!fs::is_directory(module_dir)) continue;
@@ -106,8 +101,18 @@ void build_examples(path raylib) {
 
             if (example_src.extension() != ".c") continue;
             path example_bin = OUTPUT_DIR / fs::relative(example_src, RAYLIB_EXAMPLES_DIR).replace_extension("");
-            build_example(example_src, example_bin);
+
+            if (CACHE_EXAMPLES && fs::exists(example_bin)) {
+                cout << "Found existing binary: " << example_bin << endl;
+                continue;
+            }
+
+            auto cmd = build_example_cmd(example_src, example_bin);
+
+            runner.push(cmd);
         }
+
+        runner.run();
 
     }
 }
