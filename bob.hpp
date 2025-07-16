@@ -10,14 +10,14 @@
 
 namespace fs = std::filesystem;
 
-namespace build {
+namespace bob {
 
     using std::string;
     using std::vector;
     using fs::path;
 
     #define CMD(...) Cmd((vector<string>) {__VA_ARGS__})
-    #define go_rebuild_yourself(argc, argv) build::_go_rebuild_yourself(argc, argv, __FILE__)
+    #define go_rebuild_yourself(argc, argv) bob::_go_rebuild_yourself(argc, argv, __FILE__)
 
     struct Unit {};
 

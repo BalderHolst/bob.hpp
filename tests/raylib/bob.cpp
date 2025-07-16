@@ -1,8 +1,8 @@
-#include "../../build.hpp"
+#include "../../bob.hpp"
 #include <filesystem>
 #include <algorithm>
 
-using namespace build;
+using namespace bob;
 using namespace std;
 
 const bool CACHE_RAYLIB   = true;
@@ -11,7 +11,7 @@ const bool CACHE_EXAMPLES = false;
 #define PLATFORM LINUX_WAYLAND
 // #define PLATFORM LINUX_X11
 
-const path BUILD_DIR = "./build-artifacts";
+const path BUILD_DIR = "./build";
 const path RAYLIB_SRC_DIR = "./raylib/src";
 const path RAYLIB_EXAMPLES_DIR = "./raylib/examples";
 
