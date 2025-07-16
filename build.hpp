@@ -89,16 +89,6 @@ namespace build {
     public:
         Cmd() = default;
 
-        Cmd(const string &cmd) {
-
-            // Iterate through the string and split by spaces
-            for (size_t start = 0, end = 0; end != string::npos; start = end + 1) {
-                end = cmd.find(' ', start);
-                parts.push_back(cmd.substr(start, end - start));
-            }
-
-        }
-
         Cmd (vector<string> &&parts) : parts(std::move(parts)) {}
 
         void push(const string &part) {
@@ -193,6 +183,24 @@ namespace build {
 
     inline void log(string msg) {
         std::cout << msg << std::endl;
+    }
+
+    [[noreturn]]
+    inline void panic(string msg) {
+        std::cerr << "[ERROR] " << msg << std::endl;
+        exit(1);
+    }
+
+    // Create the directory if it does not exist. Returns the absolute path of the directory.
+    inline path dir(path dir) {
+        if (!fs::exists(dir)) {
+            log("Creating directory: " + dir.string());
+            if (!fs::create_directories(dir)) {
+                std::cerr << "Failed to create directory: " << dir << std::endl;
+                exit(EXIT_FAILURE);
+            }
+        }
+        return fs::absolute(dir);
     }
 
     inline void rebuild_yourself(fs::path bin, fs::path src) {
