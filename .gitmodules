@@ -1,6 +1,3 @@
-[submodule "tests/tsoding-musializer/musializer"]
-	path = tests/tsoding-musializer/musializer
-	url = https://github.com/tsoding/musializer
 [submodule "tests/raylib/raylib"]
 	path = tests/raylib/raylib
 	url = https://github.com/raysan5/raylib/
