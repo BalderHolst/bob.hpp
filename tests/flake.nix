@@ -17,7 +17,6 @@
             ];
 
             nativeBuildInputs = with pkgs.buildPackages; [
-                clang
                 pkg-config
                 wayland
                 vulkan-headers
