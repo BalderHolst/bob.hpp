@@ -7,6 +7,7 @@
 #include <vector>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <queue>
 
 namespace fs = std::filesystem;
 
@@ -18,6 +19,16 @@ namespace bob {
 
     #define CMD(...) Cmd((vector<string>) {__VA_ARGS__})
     #define go_rebuild_yourself(argc, argv) bob::_go_rebuild_yourself(argc, argv, __FILE__)
+
+    inline void log(string msg) {
+        std::cout << msg << std::endl;
+    }
+
+    [[noreturn]]
+    inline void panic(string msg) {
+        std::cerr << "[ERROR] " << msg << std::endl;
+        exit(1);
+    }
 
     struct Unit {};
 
@@ -83,6 +94,44 @@ namespace bob {
         }
     };
 
+    struct CmdFuture {
+        pid_t cpid;
+        bool done;
+        int exit_status;
+
+        CmdFuture() : cpid(-1), done(false), exit_status(-1) {}
+
+        int await() {
+            int status;
+            if (!done) {
+                waitpid(cpid, &status, 0);
+                if (WIFEXITED(status)) {
+                    exit_status = WEXITSTATUS(status);
+                } else {
+                    panic("Child process did not terminate normally.");
+                }
+            }
+
+            done = true;
+            return exit_status;
+        }
+
+        bool poll() {
+            if (done) return true;
+            int status;
+            pid_t result = waitpid(cpid, &status, WNOHANG);
+
+            if (result == -1) panic("Error while polling child process: " + string(strerror(errno)));
+
+            if (result == 0) return false;
+
+            done = true;
+            if (WIFEXITED(status)) exit_status = WEXITSTATUS(status);
+            else panic("Child process did not terminate normally.");
+            return true;
+        }
+    };
+
     class Cmd {
         vector<string> parts;
 
@@ -110,18 +159,16 @@ namespace bob {
             return result;
         }
 
-        int run(path root = "") const {
+        CmdFuture run_async(path root = "") const {
             if (parts.empty() || parts[0].empty()) {
-                std::cerr << "No command to run." << std::endl;
-                return -1;
+                panic("No command to run.");
             }
 
             std::cout << "CMD: " << render() << std::endl;
 
             pid_t cpid = fork();
             if (cpid < 0) {
-                std::cerr << "Could not fork process: " << strerror(errno) << std::endl;
-                return -1;
+                panic("Could not fork process: " + string(strerror(errno)));
             }
 
             if (cpid == 0) {
@@ -146,21 +193,74 @@ namespace bob {
                 exit(EXIT_SUCCESS);
             }
 
-            int status;
-            waitpid(cpid, &status, 0);
+            CmdFuture future;
 
-            if (WIFEXITED(status)) {
-                int exit_status = WEXITSTATUS(status);
-                return exit_status;
-            } else {
-                std::cerr << "Child process did not terminate normally." << std::endl;
-                return -1;
-            }
+            return future;
+        }
 
+        int run(path root = "") const {
+            return run_async(root).await();
         }
 
         void clear() {
             parts.clear();
+        }
+    };
+
+    class CmdRunner {
+        std::queue<Cmd, std::deque<Cmd>> cmd_queue;
+        size_t process_count;
+        vector<CmdFuture> slots;
+
+        bool populate_slots() {
+            bool did_work = false;
+            for (size_t i = 0; i < process_count; ++i) {
+                bool fut_done = slots[i].poll();
+                if (!fut_done) continue;
+
+                if (cmd_queue.empty()) continue;
+
+                // Populate slot with a new command
+                auto cmd = cmd_queue.front();
+                cmd_queue.pop();
+                slots[i] = cmd.run_async();
+                did_work = true;
+            }
+            return did_work;
+        }
+
+        void await_slots() {
+            for (CmdFuture &slot : slots) {
+                slot.await();
+            }
+        }
+
+    public:
+        CmdRunner(size_t process_count):
+            process_count(process_count),
+            slots(vector<CmdFuture>(process_count))
+        {
+            for (CmdFuture &slot : slots) slot.done = true;
+            assert(process_count > 0 && "Process count must be greater than 0");
+        };
+
+        void push(const Cmd &cmd) {
+            cmd_queue.push(cmd);
+        }
+
+        void push_many(const vector<Cmd> &cmds) {
+            for (const auto &cmd : cmds) {
+                this->cmd_queue.push(cmd);
+            }
+        }
+
+        void run() {
+            populate_slots();
+            while (!cmd_queue.empty()) {
+                if (populate_slots()) continue;
+                usleep(10000);
+            }
+            await_slots();
         }
     };
 
@@ -179,16 +279,6 @@ namespace bob {
         auto res = find_root(".git");
         if (res.is_ok()) return res.get_ok();
         else return Err<string>("You are not in a git repository.");
-    }
-
-    inline void log(string msg) {
-        std::cout << msg << std::endl;
-    }
-
-    [[noreturn]]
-    inline void panic(string msg) {
-        std::cerr << "[ERROR] " << msg << std::endl;
-        exit(1);
     }
 
     // Create the directory if it does not exist. Returns the absolute path of the directory.

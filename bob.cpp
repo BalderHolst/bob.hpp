@@ -1,20 +1,34 @@
 #include "bob.hpp"
+#include <cstdlib>
 #include <unistd.h>
 
 using namespace bob;
+using namespace std;
 
 int main(int argc, char* argv[]) {
 
     go_rebuild_yourself(argc, argv);
 
-    auto res = git_root();
+    auto runner = CmdRunner(10);
 
-    if (res.is_ok()) {
-        log(git_root().unwrap());
-    } else {
-        log(git_root().unwrap_err());
+    for (int i = 0; i <= 100; ++i) {
+
+        auto random = [] () {
+            return static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+        };
+
+        string script = "import random;"
+                        "import time;"
+                        "print('Job " + to_string(i) + " started...'); "
+                        "time.sleep(" + to_string(random()) + "); "
+                        "print('Job + " + to_string(i) + " finished!')";
+
+        auto cmd = Cmd({"python", "-c", script});
+
+        runner.push(cmd);
     }
 
+    runner.run();
 
-    return 0;
+    return EXIT_SUCCESS;
 }
