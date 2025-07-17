@@ -10,12 +10,12 @@ int main(int argc, char* argv[]) {
 
     Cli cli("Bob CLI Example");
 
-    auto test = [](CliCommand * _) {
+    auto hello = [](CliCommand * _) {
         cout << "Hello, my name is Bob!" << endl;
         return EXIT_FAILURE;
     };
 
-    cli.add_command("hello", test, "Prints a hello message");
+    cli.add_command("hello", hello, "Prints a hello message");
 
     cli.add_arg("verbose", 'v', CliArgType::Flag, "Enable verbose output");
     cli.add_arg('s', CliArgType::Option, "Short option with a value");

@@ -464,7 +464,7 @@ namespace bob {
     }
 
     class CliCommand;
-    typedef std::function<int(CliCommand *)> CliCommandFunc;
+    typedef std::function<int(vector<CliArg>&)> CliCommandFunc;
 
     class CliCommand {
     public:
@@ -480,17 +480,23 @@ namespace bob {
     class Cli {
         void set_defaults() {
             // Set default command to print help if no command is provided
-            default_command = [this](const CliCommand * _) {
+            default_command = [this](vector<CliArg> &args) {
                 std::cout << "No command provided.\n" << std::endl;
                 this->usage();
                 return EXIT_FAILURE;
             };
 
             // Add 'help' command by default
-            add_command("help", [this](const CliCommand * _) {
+            add_command("help", [this](vector<CliArg> &args) {
                 this->usage();
                 return EXIT_SUCCESS;
             }, "Prints this help message");
+        }
+
+        void parse_args(int argc, char* argv[], size_t start = 1) {
+            for (int i = start; i < argc; ++i) {
+                string arg = argv[i];
+            }
         }
 
     public:
@@ -541,7 +547,7 @@ namespace bob {
         int run(const string &command_name) {
             for (auto &cmd : commands) {
                 if (cmd.name == command_name) {
-                    return cmd.func(&cmd);
+                    return cmd.func();
                 }
             }
             std::cerr << "Unknown command: " << command_name << "\n" << std::endl;
