@@ -29,5 +29,20 @@ int main(int argc, char* argv[]) {
         return EXIT_SUCCESS;
     }, "A subcommand in the submenu");
 
+    CliCommand &args_cmd = cli.add_command("args", [](CliCommand &cmd) -> int {
+        for (const auto &arg : cmd.args) {
+            cout << "    Argument: " << (arg.long_name.empty() ? "<empty>" : arg.long_name)
+                 << " (short: " << (arg.short_name ? string({arg.short_name, '\0'}) : "<empty>") << ")"
+                 << ", Type: " << (arg.type == CliArgType::Flag ? "Flag" : "Option")
+                 << ", Value: " << (arg.value.empty() ? "<none>" : arg.value)
+                 << ", Set: " << (arg.set ? "true" : "false") << endl;
+        }
+
+        return EXIT_SUCCESS;
+    }, "Prints prints its arguments");
+
+    args_cmd.add_arg("an-argument", 'a', CliArgType::Option, "An argument with a value");
+    args_cmd.add_arg("flag",        'f', CliArgType::Flag,   "A simple flag argument"  );
+
     return cli.serve();
 }

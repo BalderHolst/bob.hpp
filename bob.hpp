@@ -508,15 +508,18 @@ namespace bob {
 
                     // Short argument
                     if (short_name_matches || long_name_matches) {
-                        std::cout << "Found argument: " << arg_name << std::endl;
                         found = true;
-                        if (arg.type == CliArgType::Flag) {
-                            arg.set = true; // Set flag
-                        } else {
-                            if (argc <= 1) cli_panic("Expected value for argument: " + arg_name);
-                            argc--;
-                            argv++;
-                            arg.value = *argv;
+                        switch (arg.type) {
+                            case CliArgType::Flag:
+                                arg.set = true;
+                                break;
+                            case CliArgType::Option:
+                                if (argc <= 1) cli_panic("Expected value for argument: " + arg_name);
+                                argc--;
+                                argv++;
+                                arg.value = *argv;
+                                arg.set = true;
+                                break;
                         }
                     }
                 }
@@ -585,9 +588,11 @@ namespace bob {
             // Find the subcommand
             for (auto &cmd : commands) {
                 if (cmd.name == subcommand_name) {
-                    // vector<CliArg> sub_args = args; // Copy global args
-                    // sub_args.insert(sub_args.end(), cmd.args.begin(), cmd.args.end());
-                    return cmd.run(argc-1, argv+1); // Skip this command name
+                    // Pass parent args to subcommand
+                    for (CliArg &arg : args) cmd.args.push_back(arg);
+
+                    // Skip this command name
+                    return cmd.run(argc-1, argv+1);
                 }
             }
 
