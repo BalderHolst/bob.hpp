@@ -384,6 +384,85 @@ namespace bob {
 
     }
 
+    enum class CliArgType {
+        Flag,
+        Option
+    };
+
+    struct CliArg {
+        char    short_name  = '\0';
+        string  long_name   = "";
+        string  description = "";
+        bool    set         = false; // Only used for boolean flags
+        string  value       = "";    // Only used for options with values
+        CliArgType type;
+
+        CliArg(const string &long_name, CliArgType type, string description = ""):
+            long_name(long_name), type(type), description(description) {};
+
+        CliArg(char short_name, CliArgType type, string description = ""):
+            short_name(short_name), type(type), description(description) {};
+
+        CliArg(char short_name, const string &long_name, CliArgType type, string description = ""):
+            short_name(short_name), long_name(long_name), type(type), description(description) {};
+
+    };
+
+    inline void print_cli_args(const vector<CliArg> &args) {
+        auto arg_len = [](const CliArg &arg) {
+            size_t len = 0;
+            if (arg.short_name != '\0') len += 2;                           // "-x"
+            if (!arg.long_name.empty()) len += 2 + arg.long_name.length();  // "--long"
+            if (arg.short_name != '\0' && !arg.long_name.empty()) len += 2; // ", "
+            return len;
+        };
+
+        size_t max_arg_length = 0;
+        for (const auto &arg : args) {
+            max_arg_length = std::max(max_arg_length, arg_len(arg));
+        }
+
+        auto arg_placeholder = [](const CliArg &arg) -> string {
+            if (arg.type == CliArgType::Flag) return "";
+            return arg.long_name.empty() ? "<value>" : "<" + arg.long_name + ">";;
+        };
+
+        size_t max_placeholder_length = 0;
+        for (const auto &arg : args) {
+            max_placeholder_length = std::max(max_placeholder_length, arg_placeholder(arg).length());
+        }
+
+        for (const auto &arg : args) {
+            // Initial indentation
+            std::cout << "    ";
+
+            // Print short argument name
+            if (arg.short_name != '\0') {
+                std::cout << "-" << arg.short_name;
+                if (!arg.long_name.empty()) std::cout << ", ";
+            }
+
+            // Print long argument name
+            if (!arg.long_name.empty()) {
+                std::cout << "--" << arg.long_name;
+            }
+
+            // Padding for alignment
+            for (size_t i = 0; i < max_arg_length - arg_len(arg); ++i) {
+                std::cout << " ";
+            }
+
+            // Print argument value if it's an option
+            string placeholder = arg_placeholder(arg);
+            std::cout << " " << placeholder;
+            for (size_t i = 0; i < max_placeholder_length - placeholder.length(); ++i) {
+                std::cout << " ";
+            }
+
+            std::cout << "  " << arg.description << std::endl;
+        }
+    }
+
     class CliCommand;
     typedef std::function<int(CliCommand *)> CliCommandFunc;
 
@@ -392,6 +471,7 @@ namespace bob {
         string name;
         CliCommandFunc func;
         string description;
+        vector<CliArg> args;
 
         CliCommand(const string &name, CliCommandFunc func, const string &description = "")
             : name(name), func(func), description(description) {}
@@ -417,6 +497,7 @@ namespace bob {
         vector<CliCommand> commands;
         string project_description = "";
         CliCommandFunc default_command;
+        vector<CliArg> global_args = {};
 
         Cli() { set_defaults(); }
         Cli(string desc): project_description(desc) { set_defaults(); }
@@ -437,6 +518,26 @@ namespace bob {
             add_command(CliCommand(name, func, description));
         }
 
+        void add_arg(const CliArg &arg) {
+            global_args.push_back(arg);
+        }
+
+        void add_arg(char short_name, CliArgType type, string description = "") {
+            add_arg(CliArg(short_name, type, description));
+        }
+
+        void add_arg(const string &long_name, CliArgType type, string description = "") {
+            add_arg(CliArg(long_name, type, description));
+        }
+
+        void add_arg(char short_name, const string &long_name, CliArgType type, string description = "") {
+            add_arg(CliArg(short_name, long_name, type, description));
+        }
+
+        void add_arg(const string &long_name, char short_name, CliArgType type, string description = "") {
+            add_arg(CliArg(short_name, long_name, type, description));
+        }
+
         int run(const string &command_name) {
             for (auto &cmd : commands) {
                 if (cmd.name == command_name) {
@@ -454,18 +555,22 @@ namespace bob {
                 std::cout << project_description << "\n" << std::endl;
             }
 
-            std::cout << "Available commands:" << std::endl;
-
             size_t max_name_length = 0;
             for (const auto &cmd : commands) {
                 max_name_length = std::max(max_name_length, cmd.name.length());
             }
 
+            std::cout << "Available commands:" << std::endl;
             for (const auto &cmd : commands) {
                 std::cout << "    " << cmd.name << "     ";
                 size_t padding = max_name_length - cmd.name.length();
                 for (size_t i = 0; i < padding; ++i) std::cout << " ";
                 std::cout << cmd.description << std::endl;
+            }
+
+            if (!global_args.empty()) {
+                std::cout << "\nGlobal arguments:" << std::endl;
+                print_cli_args(global_args);
             }
         }
 

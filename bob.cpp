@@ -15,8 +15,12 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     };
 
-
     cli.add_command("hello", test, "Prints a hello message");
+
+    cli.add_arg("verbose", 'v', CliArgType::Flag, "Enable verbose output");
+    cli.add_arg('s', CliArgType::Option, "Short option with a value");
+
+    cli.add_arg("long-option", CliArgType::Option, "Long option with a value");
 
     return cli.serve(argc, argv);
 }
