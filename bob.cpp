@@ -10,27 +10,25 @@ int main(int argc, char* argv[]) {
 
     Cli cli(argc, argv, "Bob CLI Example");
 
-    auto hello = [](CliCommand &_) -> int {
+    cli.add_arg("verbose", 'v', CliArgType::Flag, "Enable verbose output");
+
+    cli.add_command("hello", "Prints a hello message", [](CliCommand &_){
         cout << "Hello, my name is Bob!" << endl;
         return EXIT_FAILURE;
-    };
+    });
 
-    cli.add_command("hello", hello, "Prints a hello message");
+    cli.add_command("submenu", "A submenu of commands").subcommand()
+        .add_command("subcommand1", "A subcommand in the submenu", [](CliCommand &cmd) {
+            cout << "This is the FIRST subcommand!!" << endl;
+            return EXIT_SUCCESS;
+        })
+        .add_command("subcommand2", "A subcommand in the submenu", [](CliCommand &cmd) {
+            cout << "This is the SECOND subcommand!!" << endl;
+            return EXIT_SUCCESS;
+        });
 
-    cli.add_arg("verbose", 'v', CliArgType::Flag, "Enable verbose output");
-    cli.add_arg('s', CliArgType::Option, "Short option with a value");
-
-    cli.add_arg("long-option", CliArgType::Option, "Long option with a value");
-
-    CliCommand &submenu = cli.add_command("submenu", "A submenu of commands");
-
-    submenu.add_command("subcommand", [](CliCommand &cmd) -> int {
-        cout << "This is a subcommand in the submenu!" << endl;
-        return EXIT_SUCCESS;
-    }, "A subcommand in the submenu");
-
-    CliCommand &args_cmd = cli.add_command("args", [](CliCommand &cmd) -> int {
-        cmd.handle_help();
+    cli.add_command("args", "Prints prints its arguments and their values", [](CliCommand &cmd) -> int {
+        cmd.handle_help(); // Handle help argument if set
         for (const auto &arg : cmd.args) {
             cout << "    Argument: " << (arg.long_name.empty() ? "<empty>" : arg.long_name)
                  << " (short: " << (arg.short_name ? string({arg.short_name, '\0'}) : "<empty>") << ")"
@@ -38,13 +36,11 @@ int main(int argc, char* argv[]) {
                  << ", Value: " << (arg.value.empty() ? "<none>" : arg.value)
                  << ", Set: " << (arg.set ? "true" : "false") << endl;
         }
-
         return EXIT_SUCCESS;
-    }, "Prints prints its arguments");
-
-    args_cmd.add_arg("an-argument", 'a', CliArgType::Option, "An argument with a value");
-    args_cmd.add_arg("flag",        'f', CliArgType::Flag,   "A simple flag argument"  );
-    args_cmd.add_arg("better-s",    's', CliArgType::Flag,   "A better -s flag!"  );
+    }).subcommand()
+        .add_arg("an-argument", 'a', CliArgType::Option, "An argument with a value")
+        .add_arg("flag",        'f', CliArgType::Flag,   "A simple flag argument")
+        .add_arg("better-v",    'v', CliArgType::Flag,   "A better -v flag than the global one");
 
     return cli.serve();
 }

@@ -406,6 +406,13 @@ namespace bob {
         CliArg(char short_name, const string &long_name, CliArgType type, string description = ""):
             short_name(short_name), long_name(long_name), type(type), description(description) {};
 
+        bool is_flag() const {
+            return type == CliArgType::Flag;
+        }
+
+        bool is_option() const {
+            return type == CliArgType::Option;
+        }
     };
 
     typedef std::vector<CliArg> CliArgs;
@@ -643,18 +650,30 @@ namespace bob {
 
         CliCommand& add_command(CliCommand command) {
             commands.push_back(command);
-            return commands[commands.size() - 1];
+            return *this;
         }
 
-        CliCommand& add_command(const string &name, CliCommandFunc func, string description = "") {
+        CliCommand& add_command(const string &name, string description, CliCommandFunc func) {
             return add_command(CliCommand(name, func, description));
         }
 
-        CliCommand& add_command(const string &name, string description = "") {
+        CliCommand& add_command(const string &name, string description) {
             return add_command(CliCommand(name, description));
         }
 
-        void add_arg(const CliArg &arg) {
+        CliCommand& add_command(const string &name, CliCommandFunc func) {
+            return add_command(CliCommand(name, func));
+        }
+
+        CliCommand& add_command(const string &name) {
+            return add_command(CliCommand(name));
+        }
+
+        CliCommand& subcommand() {
+            return commands[commands.size() - 1];
+        }
+
+        CliCommand& add_arg(const CliArg &arg) {
             CliArg * short_existing = find_short(arg.short_name);
             CliArg * long_existing  = find_long(arg.long_name);
 
@@ -662,22 +681,24 @@ namespace bob {
             if (long_existing)  panic("Long argument already exists: " + arg.long_name);
 
             args.push_back(arg);
+
+            return *this;
         }
 
-        void add_arg(char short_name, CliArgType type, string description = "") {
-            add_arg(CliArg(short_name, type, description));
+        CliCommand& add_arg(char short_name, CliArgType type, string description = "") {
+            return add_arg(CliArg(short_name, type, description));
         }
 
-        void add_arg(const string &long_name, CliArgType type, string description = "") {
-            add_arg(CliArg(long_name, type, description));
+        CliCommand& add_arg(const string &long_name, CliArgType type, string description = "") {
+            return add_arg(CliArg(long_name, type, description));
         }
 
-        void add_arg(char short_name, const string &long_name, CliArgType type, string description = "") {
-            add_arg(CliArg(short_name, long_name, type, description));
+        CliCommand& add_arg(char short_name, const string &long_name, CliArgType type, string description = "") {
+            return add_arg(CliArg(short_name, long_name, type, description));
         }
 
-        void add_arg(const string &long_name, char short_name, CliArgType type, string description = "") {
-            add_arg(CliArg(short_name, long_name, type, description));
+        CliCommand& add_arg(const string &long_name, char short_name, CliArgType type, string description = "") {
+            return add_arg(CliArg(short_name, long_name, type, description));
         }
 
     };
