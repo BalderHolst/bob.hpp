@@ -14,6 +14,7 @@
             packages = with pkgs; [
                 git
                 wayland-scanner
+                clang
             ];
 
             nativeBuildInputs = with pkgs.buildPackages; [
@@ -23,6 +24,7 @@
                 libxkbcommon
                 libGL
                 glfw
+                SDL2
             ];
 
             env = {

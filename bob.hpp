@@ -30,6 +30,8 @@ namespace bob {
         exit(1);
     }
 
+    inline string I(path p) { return "-I" + p.string(); }
+
     struct Unit {};
 
     template<typename T, typename E>
@@ -244,13 +246,21 @@ namespace bob {
             assert(process_count > 0 && "Process count must be greater than 0");
         };
 
-        CmdRunner() {
-            process_count = sysconf(_SC_NPROCESSORS_ONLN);
-            slots = vector<CmdFuture>(process_count);
+        CmdRunner(vector<Cmd> cmds) :
+            process_count(sysconf(_SC_NPROCESSORS_ONLN)),
+            slots(vector<CmdFuture>(process_count))
+        {
             for (CmdFuture &slot : slots) slot.done = true;
             if (process_count == 0) process_count = 1; // Fallback
-            log("Using default process count: " + std::to_string(process_count));
+            push_many(cmds);
+        }
 
+        CmdRunner():
+            process_count(sysconf(_SC_NPROCESSORS_ONLN)),
+            slots(vector<CmdFuture>(process_count))
+        {
+            for (CmdFuture &slot : slots) slot.done = true;
+            if (process_count == 0) process_count = 1; // Fallback
         }
 
         void push(const Cmd &cmd) {
