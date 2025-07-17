@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <queue>
+#include <functional>
 
 namespace fs = std::filesystem;
 
@@ -17,7 +18,6 @@ namespace bob {
     using std::vector;
     using fs::path;
 
-    #define CMD(...) Cmd((vector<string>) {__VA_ARGS__})
     #define go_rebuild_yourself(argc, argv) bob::_go_rebuild_yourself(argc, argv, __FILE__)
 
     inline void log(string msg) {
@@ -317,7 +317,7 @@ namespace bob {
         string src_str = src.string();
         string bin_str = bin.string();
 
-        auto compile_cmd = CMD("g++", src_str, "-o", bin_str);
+        auto compile_cmd = Cmd({"g++", src_str, "-o", bin_str});
 
         int status = compile_cmd.run();
 
@@ -327,9 +327,10 @@ namespace bob {
         }
     }
 
-    inline int run_yourself(fs::path bin) {
+    inline int run_yourself(fs::path bin, int argc, char* argv[]) {
         fs::path bin_path = fs::relative(bin);
-        auto run_cmd = CMD("./" + bin_path.string());
+        auto run_cmd = Cmd({"./" + bin_path.string()});
+        for (int i = 1; i < argc; ++i) run_cmd.push(argv[i]);
         std::cout << std::endl;
         log("Running...");
         return run_cmd.run();
@@ -378,9 +379,106 @@ namespace bob {
         if (rebuild_needed) {
             log("Rebuilding the executable...");
             rebuild_yourself(executable_path, source_path);
-            exit(run_yourself(executable_path));
+            exit(run_yourself(executable_path, argc, argv));
         }
 
     }
+
+    class CliCommand;
+    typedef std::function<int(CliCommand *)> CliCommandFunc;
+
+    class CliCommand {
+    public:
+        string name;
+        CliCommandFunc func;
+        string description;
+
+        CliCommand(const string &name, CliCommandFunc func, const string &description = "")
+            : name(name), func(func), description(description) {}
+    };
+
+    class Cli {
+        void set_defaults() {
+            // Set default command to print help if no command is provided
+            default_command = [this](const CliCommand * _) {
+                std::cout << "No command provided.\n" << std::endl;
+                this->usage();
+                return EXIT_FAILURE;
+            };
+
+            // Add 'help' command by default
+            add_command("help", [this](const CliCommand * _) {
+                this->usage();
+                return EXIT_SUCCESS;
+            }, "Prints this help message");
+        }
+
+    public:
+        vector<CliCommand> commands;
+        string project_description = "";
+        CliCommandFunc default_command;
+
+        Cli() { set_defaults(); }
+        Cli(string desc): project_description(desc) { set_defaults(); }
+
+        void set_project_description(const string &desc) {
+            project_description = desc;
+        }
+
+        void set_default_command(CliCommandFunc func) {
+            default_command = func;
+        }
+
+        void add_command(CliCommand command) {
+            commands.push_back(command);
+        }
+
+        void add_command(const string &name, CliCommandFunc func, string description = "") {
+            add_command(CliCommand(name, func, description));
+        }
+
+        int run(const string &command_name) {
+            for (auto &cmd : commands) {
+                if (cmd.name == command_name) {
+                    return cmd.func(&cmd);
+                }
+            }
+            std::cerr << "Unknown command: " << command_name << "\n" << std::endl;
+            usage();
+            return EXIT_FAILURE;
+        }
+
+        void usage() const {
+
+            if (!project_description.empty()) {
+                std::cout << project_description << "\n" << std::endl;
+            }
+
+            std::cout << "Available commands:" << std::endl;
+
+            size_t max_name_length = 0;
+            for (const auto &cmd : commands) {
+                max_name_length = std::max(max_name_length, cmd.name.length());
+            }
+
+            for (const auto &cmd : commands) {
+                std::cout << "    " << cmd.name << "     ";
+                size_t padding = max_name_length - cmd.name.length();
+                for (size_t i = 0; i < padding; ++i) std::cout << " ";
+                std::cout << cmd.description << std::endl;
+            }
+        }
+
+        int serve(int argc, char* argv[]) {
+            if (argc < 2) {
+                return default_command(nullptr);
+            }
+
+            string command_name = argv[1];
+
+            return run(command_name);
+        }
+    };
+
 
 }

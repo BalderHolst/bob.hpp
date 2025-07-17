@@ -6,29 +6,17 @@ using namespace bob;
 using namespace std;
 
 int main(int argc, char* argv[]) {
-
     go_rebuild_yourself(argc, argv);
 
-    auto runner = CmdRunner(10);
+    Cli cli("Bob CLI Example");
 
-    for (int i = 0; i <= 100; ++i) {
+    auto test = [](CliCommand * _) {
+        cout << "Hello, my name is Bob!" << endl;
+        return EXIT_FAILURE;
+    };
 
-        auto random = [] () {
-            return static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
-        };
 
-        string script = "import random;"
-                        "import time;"
-                        "print('Job " + to_string(i) + " started...'); "
-                        "time.sleep(" + to_string(random()) + "); "
-                        "print('Job + " + to_string(i) + " finished!')";
+    cli.add_command("hello", test, "Prints a hello message");
 
-        auto cmd = Cmd({"python", "-c", script});
-
-        runner.push(cmd);
-    }
-
-    runner.run();
-
-    return EXIT_SUCCESS;
+    return cli.serve(argc, argv);
 }
