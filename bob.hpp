@@ -408,7 +408,9 @@ namespace bob {
 
     };
 
-    inline void print_cli_args(const vector<CliArg> &args) {
+    typedef std::vector<CliArg> CliArgs;
+
+    inline void print_cli_args(const CliArgs &args) {
         auto arg_len = [](const CliArg &arg) {
             size_t len = 0;
             if (arg.short_name != '\0') len += 2;                           // "-x"
@@ -464,68 +466,157 @@ namespace bob {
     }
 
     class CliCommand;
-    typedef std::function<int(vector<CliArg>&)> CliCommandFunc;
+    typedef std::function<int(CliCommand&)> CliCommandFunc;
 
     class CliCommand {
+
+        [[noreturn]]
+        void cli_panic(const string &msg) {
+            std::cerr << "[ERROR] " << msg << "\n" << std::endl;
+            usage();
+            exit(EXIT_FAILURE);
+        }
+
+        string parse_args(int argc, string argv[]) {
+            assert(argc >= 0 && "Argc must be non-negative");
+
+            for (; argc > 0; --argc, ++argv) {
+
+                string arg_name = *argv;
+
+                if (arg_name.empty()) {
+                    cli_panic("Empty argument found in command line arguments.");
+                }
+
+                if (arg_name[0] != '-') {
+                    return arg_name; // This is the next command name
+                }
+
+                bool found = false;
+
+                for (CliArg &arg : args) {
+
+                    bool short_name_matches = arg.short_name != '\0'
+                        && arg_name.length() == 2
+                        && arg_name[0] == '-'
+                        && arg_name[1] == arg.short_name;
+
+                    bool long_name_matches = !arg.long_name.empty()
+                        && arg_name.length() > 2
+                        && arg_name.substr(0, 2) == "--"
+                        && arg_name.substr(2) == arg.long_name;
+
+                    // Short argument
+                    if (short_name_matches || long_name_matches) {
+                        std::cout << "Found argument: " << arg_name << std::endl;
+                        found = true;
+                        if (arg.type == CliArgType::Flag) {
+                            arg.set = true; // Set flag
+                        } else {
+                            if (argc <= 1) cli_panic("Expected value for argument: " + arg_name);
+                            argc--;
+                            argv++;
+                            arg.value = *argv;
+                        }
+                    }
+                }
+
+                if (!found) cli_panic("Unknown argument: " + arg_name);
+            }
+
+            return ""; // No next command
+        }
+
+        int call_func() {
+            if (!func) cli_panic("No function set for command: " + name);
+            return func(*this);
+        }
+
     public:
         string name;
         CliCommandFunc func;
         string description;
         vector<CliArg> args;
+        vector<CliCommand> commands;
 
         CliCommand(const string &name, CliCommandFunc func, const string &description = "")
-            : name(name), func(func), description(description) {}
-    };
+           : name(name), func(func), description(description) {}
 
-    class Cli {
-        void set_defaults() {
-            // Set default command to print help if no command is provided
-            default_command = [this](vector<CliArg> &args) {
-                std::cout << "No command provided.\n" << std::endl;
-                this->usage();
-                return EXIT_FAILURE;
-            };
+        CliCommand(const string &name, const string &description = "")
+            : CliCommand(name, nullptr, description) {
+                func = [] (CliCommand &cmd) {
+                    std::cout << "No command provided.\n" << std::endl;
+                    cmd.usage();
+                    return EXIT_FAILURE;
+                };
+            }
 
-            // Add 'help' command by default
-            add_command("help", [this](vector<CliArg> &args) {
-                this->usage();
-                return EXIT_SUCCESS;
-            }, "Prints this help message");
-        }
+        void usage() const {
 
-        void parse_args(int argc, char* argv[], size_t start = 1) {
-            for (int i = start; i < argc; ++i) {
-                string arg = argv[i];
+            if (!description.empty()) {
+                std::cout << description << "\n" << std::endl;
+            }
+
+            size_t max_name_length = 0;
+            for (const auto &cmd : commands) {
+                max_name_length = std::max(max_name_length, cmd.name.length());
+            }
+
+            std::cout << "Available commands:" << std::endl;
+            for (const auto &cmd : commands) {
+                std::cout << "    " << cmd.name << "     ";
+                size_t padding = max_name_length - cmd.name.length();
+                for (size_t i = 0; i < padding; ++i) std::cout << " ";
+                std::cout << cmd.description << std::endl;
+            }
+
+            if (!args.empty()) {
+                std::cout << "\nArguments:" << std::endl;
+                print_cli_args(args);
             }
         }
 
-    public:
-        vector<CliCommand> commands;
-        string project_description = "";
-        CliCommandFunc default_command;
-        vector<CliArg> global_args = {};
+        int run(int argc, string argv[]) {
 
-        Cli() { set_defaults(); }
-        Cli(string desc): project_description(desc) { set_defaults(); }
+            string subcommand_name = parse_args(argc, argv);
 
-        void set_project_description(const string &desc) {
-            project_description = desc;
+            if (subcommand_name.empty()) return call_func();
+
+            // Find the subcommand
+            for (auto &cmd : commands) {
+                if (cmd.name == subcommand_name) {
+                    // vector<CliArg> sub_args = args; // Copy global args
+                    // sub_args.insert(sub_args.end(), cmd.args.begin(), cmd.args.end());
+                    return cmd.run(argc-1, argv+1); // Skip this command name
+                }
+            }
+
+            cli_panic("Unknown command: " + subcommand_name);
         }
 
-        void set_default_command(CliCommandFunc func) {
-            default_command = func;
+        void set_description(const string &desc) {
+            description = desc;
         }
 
-        void add_command(CliCommand command) {
+        void set_default_command(CliCommandFunc f) {
+            func = f;
+        }
+
+        CliCommand& add_command(CliCommand command) {
             commands.push_back(command);
+            return commands[commands.size() - 1];
         }
 
-        void add_command(const string &name, CliCommandFunc func, string description = "") {
-            add_command(CliCommand(name, func, description));
+        CliCommand& add_command(const string &name, CliCommandFunc func, string description = "") {
+            return add_command(CliCommand(name, func, description));
+        }
+
+        CliCommand& add_command(const string &name, string description = "") {
+            return add_command(CliCommand(name, description));
         }
 
         void add_arg(const CliArg &arg) {
-            global_args.push_back(arg);
+            args.push_back(arg);
         }
 
         void add_arg(char short_name, CliArgType type, string description = "") {
@@ -544,50 +635,38 @@ namespace bob {
             add_arg(CliArg(short_name, long_name, type, description));
         }
 
-        int run(const string &command_name) {
-            for (auto &cmd : commands) {
-                if (cmd.name == command_name) {
-                    return cmd.func();
-                }
-            }
-            std::cerr << "Unknown command: " << command_name << "\n" << std::endl;
-            usage();
-            return EXIT_FAILURE;
+    };
+
+
+    class Cli : public CliCommand {
+        vector<string> raw_args;
+
+        void set_defaults(int argc, char* argv[]) {
+            assert(argc > 0 && "No program provided via argv[0]");
+
+            name = argv[0];
+
+            raw_args.assign(argv + 1, argv + argc);
+
+            // Add 'help' command by default
+            add_command("help", [](CliCommand &cmd) {
+                cmd.usage();
+                return EXIT_SUCCESS;
+            }, "Prints this help message");
         }
 
-        void usage() const {
+    public:
 
-            if (!project_description.empty()) {
-                std::cout << project_description << "\n" << std::endl;
-            }
-
-            size_t max_name_length = 0;
-            for (const auto &cmd : commands) {
-                max_name_length = std::max(max_name_length, cmd.name.length());
-            }
-
-            std::cout << "Available commands:" << std::endl;
-            for (const auto &cmd : commands) {
-                std::cout << "    " << cmd.name << "     ";
-                size_t padding = max_name_length - cmd.name.length();
-                for (size_t i = 0; i < padding; ++i) std::cout << " ";
-                std::cout << cmd.description << std::endl;
-            }
-
-            if (!global_args.empty()) {
-                std::cout << "\nGlobal arguments:" << std::endl;
-                print_cli_args(global_args);
-            }
+        Cli(int argc, char* argv[]): CliCommand("") {
+            set_defaults(argc, argv);
         }
 
-        int serve(int argc, char* argv[]) {
-            if (argc < 2) {
-                return default_command(nullptr);
-            }
+        Cli(int argc, char* argv[], string desc) : CliCommand("", desc) {
+            set_defaults(argc, argv);
+        }
 
-            string command_name = argv[1];
-
-            return run(command_name);
+        int serve() {
+            return run(raw_args.size(), raw_args.data());
         }
     };
 

@@ -8,9 +8,9 @@ using namespace std;
 int main(int argc, char* argv[]) {
     go_rebuild_yourself(argc, argv);
 
-    Cli cli("Bob CLI Example");
+    Cli cli(argc, argv, "Bob CLI Example");
 
-    auto hello = [](CliCommand * _) {
+    auto hello = [](CliCommand &_) -> int {
         cout << "Hello, my name is Bob!" << endl;
         return EXIT_FAILURE;
     };
@@ -22,5 +22,12 @@ int main(int argc, char* argv[]) {
 
     cli.add_arg("long-option", CliArgType::Option, "Long option with a value");
 
-    return cli.serve(argc, argv);
+    CliCommand &submenu = cli.add_command("submenu", "A submenu of commands");
+
+    submenu.add_command("subcommand", [](CliCommand &cmd) -> int {
+        cout << "This is a subcommand in the submenu!" << endl;
+        return EXIT_SUCCESS;
+    }, "A subcommand in the submenu");
+
+    return cli.serve();
 }
