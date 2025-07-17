@@ -616,7 +616,13 @@ namespace bob {
                     // Pass parent args to subcommand in reverse
                     // order to keep --help as the last argument
                     for (int i = args.size() - 1; i >= 0; --i) {
-                        cmd.args.push_back(args[i]);
+                        CliArg &arg = args[i];
+
+                        // Skip if the argument is already set
+                        if (cmd.find_short(arg.short_name)) continue;
+                        if (cmd.find_long(arg.long_name))   continue;
+
+                        cmd.add_arg(arg);
                     }
 
                     // Skip this command name
@@ -649,6 +655,12 @@ namespace bob {
         }
 
         void add_arg(const CliArg &arg) {
+            CliArg * short_existing = find_short(arg.short_name);
+            CliArg * long_existing  = find_long(arg.long_name);
+
+            if (short_existing) panic("Short argument already exists: " + string({arg.short_name}));
+            if (long_existing)  panic("Long argument already exists: " + arg.long_name);
+
             args.push_back(arg);
         }
 

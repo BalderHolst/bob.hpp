@@ -44,6 +44,7 @@ int main(int argc, char* argv[]) {
 
     args_cmd.add_arg("an-argument", 'a', CliArgType::Option, "An argument with a value");
     args_cmd.add_arg("flag",        'f', CliArgType::Flag,   "A simple flag argument"  );
+    args_cmd.add_arg("better-s",    's', CliArgType::Flag,   "A better -s flag!"  );
 
     return cli.serve();
 }
