@@ -30,6 +30,7 @@ int main(int argc, char* argv[]) {
     }, "A subcommand in the submenu");
 
     CliCommand &args_cmd = cli.add_command("args", [](CliCommand &cmd) -> int {
+        cmd.handle_help();
         for (const auto &arg : cmd.args) {
             cout << "    Argument: " << (arg.long_name.empty() ? "<empty>" : arg.long_name)
                  << " (short: " << (arg.short_name ? string({arg.short_name, '\0'}) : "<empty>") << ")"

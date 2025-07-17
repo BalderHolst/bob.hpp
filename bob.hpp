@@ -555,7 +555,6 @@ namespace bob {
             }
 
         void usage() const {
-
             if (!description.empty()) {
                 std::cout << description << "\n" << std::endl;
             }
@@ -579,6 +578,31 @@ namespace bob {
             }
         }
 
+        CliArg* find_short(char name) {
+            for (CliArg &arg : args) {
+                if (arg.short_name == name) return &arg;
+            }
+            return nullptr; // Not found
+        }
+
+        CliArg* find_long(string name) {
+            for (CliArg &arg : args) {
+                if (arg.long_name == name) return &arg;
+            }
+            return nullptr; // Not found
+        }
+
+        void handle_help() {
+            CliArg *help_arg = find_long("help");
+            if (!help_arg) help_arg = find_short('h');
+            if (!help_arg) return; // No help argument found
+
+            if (!help_arg->set) return;
+
+            usage();
+            exit(EXIT_SUCCESS);
+        }
+
         int run(int argc, string argv[]) {
 
             string subcommand_name = parse_args(argc, argv);
@@ -588,8 +612,12 @@ namespace bob {
             // Find the subcommand
             for (auto &cmd : commands) {
                 if (cmd.name == subcommand_name) {
-                    // Pass parent args to subcommand
-                    for (CliArg &arg : args) cmd.args.push_back(arg);
+
+                    // Pass parent args to subcommand in reverse
+                    // order to keep --help as the last argument
+                    for (int i = args.size() - 1; i >= 0; --i) {
+                        cmd.args.push_back(args[i]);
+                    }
 
                     // Skip this command name
                     return cmd.run(argc-1, argv+1);
@@ -653,11 +681,8 @@ namespace bob {
 
             raw_args.assign(argv + 1, argv + argc);
 
-            // Add 'help' command by default
-            add_command("help", [](CliCommand &cmd) {
-                cmd.usage();
-                return EXIT_SUCCESS;
-            }, "Prints this help message");
+            // Add help argument. This will be inherited by all sub commands.
+            add_arg("help", 'h', CliArgType::Flag, "Prints this help message");
         }
 
     public:
