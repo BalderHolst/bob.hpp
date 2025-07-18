@@ -10,7 +10,7 @@ int main(int argc, char* argv[]) {
 
     Cli cli("Bob CLI Example", argc, argv);
 
-    cli.add_arg("verbose", 'v', CliArgType::Flag, "Enable verbose output");
+    cli.add_arg("verbose", 'v', CliFlagType::Bool, "Enable verbose output");
 
     cli.add_command("hello", "Prints a hello message", [](CliCommand &_){
         cout << "Hello, my name is Bob!" << endl;
@@ -27,29 +27,29 @@ int main(int argc, char* argv[]) {
             return EXIT_SUCCESS;
         });
 
-    cli.add_command("Values", "Prints the raw arguments passed to the CLI", [](CliCommand &cmd) -> int {
+    cli.add_command("args", "Prints the arguments passed to the CLI", [](CliCommand &cmd) -> int {
         cmd.handle_help(); // Handle help argument if set
-        cout << "Arguments" << endl;
-        for (int i = 0; i < cmd.value_args.size(); ++i) {
-            cout << "    argv[" << i << "]: " << cmd.value_args[i] << endl;
+        cout << "Arguments:" << endl;
+        for (int i = 0; i < cmd.args.size(); ++i) {
+            cout << "    argv[" << i << "]: " << cmd.args[i] << endl;
         }
         return EXIT_SUCCESS;
     });
 
-    cli.add_command("args", "Prints prints its flag arguments and their values", [](CliCommand &cmd) -> int {
+    cli.add_command("flags", "Prints prints its flag arguments and their values", [](CliCommand &cmd) -> int {
         cmd.handle_help(); // Handle help argument if set
-        for (const auto &arg : cmd.args) {
-            cout << "    Argument: " << (arg.long_name.empty() ? "<empty>" : arg.long_name)
-                 << " (short: " << (arg.short_name ? string({arg.short_name}) : "<empty>") << ")"
-                 << ", Type: " << (arg.type == CliArgType::Flag ? "Flag" : "Option")
-                 << ", Value: " << (arg.value.empty() ? "<none>" : arg.value)
-                 << ", Set: " << (arg.set ? "true" : "false") << endl;
+        for (const auto &flag : cmd.flags) {
+            cout << "    Argument: " << (flag.long_name.empty() ? "<empty>" : flag.long_name)
+                 << " (short: " << (flag.short_name ? string({flag.short_name}) : "<empty>") << ")"
+                 << ", Type: " << (flag.type == CliFlagType::Bool ? "Flag" : "Option")
+                 << ", Value: " << (flag.value.empty() ? "<none>" : flag.value)
+                 << ", Set: " << (flag.set ? "true" : "false") << endl;
         }
         return EXIT_SUCCESS;
     }).subcommand()
-        .add_arg("an-argument", 'a', CliArgType::Option, "An argument with a value")
-        .add_arg("flag",        'f', CliArgType::Flag,   "A simple flag argument")
-        .add_arg("better-v",    'v', CliArgType::Flag,   "A better -v flag than the global one");
+        .add_arg("an-argument", 'a', CliFlagType::Value, "An argument with a value")
+        .add_arg("flag",        'f', CliFlagType::Bool,   "A simple flag argument")
+        .add_arg("better-v",    'v', CliFlagType::Bool,   "A better -v flag than the global one");
 
     return cli.serve();
 }

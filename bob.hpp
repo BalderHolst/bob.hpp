@@ -386,9 +386,9 @@ namespace bob {
 
     }
 
-    enum class CliArgType {
-        Flag,
-        Option
+    enum class CliFlagType {
+        Bool,
+        Value
     };
 
     struct CliArg {
@@ -397,23 +397,23 @@ namespace bob {
         string  description = "";
         bool    set         = false; // Only used for boolean flags
         string  value       = "";    // Only used for options with values
-        CliArgType type;
+        CliFlagType type;
 
-        CliArg(const string &long_name, CliArgType type, string description = ""):
+        CliArg(const string &long_name, CliFlagType type, string description = ""):
             long_name(long_name), type(type), description(description) {};
 
-        CliArg(char short_name, CliArgType type, string description = ""):
+        CliArg(char short_name, CliFlagType type, string description = ""):
             short_name(short_name), type(type), description(description) {};
 
-        CliArg(char short_name, const string &long_name, CliArgType type, string description = ""):
+        CliArg(char short_name, const string &long_name, CliFlagType type, string description = ""):
             short_name(short_name), long_name(long_name), type(type), description(description) {};
 
         bool is_flag() const {
-            return type == CliArgType::Flag;
+            return type == CliFlagType::Bool;
         }
 
         bool is_option() const {
-            return type == CliArgType::Option;
+            return type == CliFlagType::Value;
         }
     };
 
@@ -434,7 +434,7 @@ namespace bob {
         }
 
         auto arg_placeholder = [](const CliArg &arg) -> string {
-            if (arg.type == CliArgType::Flag) return "";
+            if (arg.type == CliFlagType::Bool) return "";
             return arg.long_name.empty() ? "<value>" : "<" + arg.long_name + ">";;
         };
 
@@ -500,14 +500,14 @@ namespace bob {
                 if (arg_name[0] != '-') {
                     if (is_menu()) return arg_name; // This is the next command name
                     else {
-                        value_args.push_back(arg_name); // This is a value argument
+                        args.push_back(arg_name); // This is a value argument
                         continue;
                     }
                 }
 
                 bool found = false;
 
-                for (CliArg &arg : args) {
+                for (CliArg &arg : flags) {
 
                     bool short_name_matches = arg.short_name != '\0'
                         && arg_name.length() == 2
@@ -523,10 +523,10 @@ namespace bob {
                     if (short_name_matches || long_name_matches) {
                         found = true;
                         switch (arg.type) {
-                            case CliArgType::Flag:
+                            case CliFlagType::Bool:
                                 arg.set = true;
                                 break;
-                            case CliArgType::Option:
+                            case CliFlagType::Value:
                                 if (argc <= 1) cli_panic("Expected value for argument: " + arg_name);
                                 argc--;
                                 argv++;
@@ -549,11 +549,11 @@ namespace bob {
         }
 
     public:
-        vector<string> value_args; // Raw arguments passed to the command
+        vector<string> args; // Raw arguments passed to the command
         string name;
         CliCommandFunc func;
         string description;
-        vector<CliArg> args;
+        vector<CliArg> flags;
         vector<CliCommand> commands;
 
         CliCommand(const string &name, CliCommandFunc func, const string &description = "")
@@ -592,21 +592,21 @@ namespace bob {
                 }
             }
 
-            if (!args.empty()) {
+            if (!flags.empty()) {
                 std::cout << "\nArguments:" << std::endl;
-                print_cli_args(args);
+                print_cli_args(flags);
             }
         }
 
         CliArg* find_short(char name) {
-            for (CliArg &arg : args) {
+            for (CliArg &arg : flags) {
                 if (arg.short_name == name) return &arg;
             }
             return nullptr; // Not found
         }
 
         CliArg* find_long(string name) {
-            for (CliArg &arg : args) {
+            for (CliArg &arg : flags) {
                 if (arg.long_name == name) return &arg;
             }
             return nullptr; // Not found
@@ -636,8 +636,8 @@ namespace bob {
 
                     // Pass parent args to subcommand in reverse
                     // order to keep --help as the last argument
-                    for (int i = args.size() - 1; i >= 0; --i) {
-                        CliArg &arg = args[i];
+                    for (int i = flags.size() - 1; i >= 0; --i) {
+                        CliArg &arg = flags[i];
 
                         // Skip if the argument is already set
                         if (cmd.find_short(arg.short_name)) continue;
@@ -694,24 +694,24 @@ namespace bob {
             if (short_existing) panic("Short argument already exists: " + string({arg.short_name}));
             if (long_existing)  panic("Long argument already exists: " + arg.long_name);
 
-            args.push_back(arg);
+            flags.push_back(arg);
 
             return *this;
         }
 
-        CliCommand& add_arg(char short_name, CliArgType type, string description = "") {
+        CliCommand& add_arg(char short_name, CliFlagType type, string description = "") {
             return add_arg(CliArg(short_name, type, description));
         }
 
-        CliCommand& add_arg(const string &long_name, CliArgType type, string description = "") {
+        CliCommand& add_arg(const string &long_name, CliFlagType type, string description = "") {
             return add_arg(CliArg(long_name, type, description));
         }
 
-        CliCommand& add_arg(char short_name, const string &long_name, CliArgType type, string description = "") {
+        CliCommand& add_arg(char short_name, const string &long_name, CliFlagType type, string description = "") {
             return add_arg(CliArg(short_name, long_name, type, description));
         }
 
-        CliCommand& add_arg(const string &long_name, char short_name, CliArgType type, string description = "") {
+        CliCommand& add_arg(const string &long_name, char short_name, CliFlagType type, string description = "") {
             return add_arg(CliArg(short_name, long_name, type, description));
         }
 
@@ -729,7 +729,7 @@ namespace bob {
             raw_args.assign(argv + 1, argv + argc);
 
             // Add help argument. This will be inherited by all sub commands.
-            add_arg("help", 'h', CliArgType::Flag, "Prints this help message");
+            add_arg("help", 'h', CliFlagType::Bool, "Prints this help message");
         }
 
     public:
