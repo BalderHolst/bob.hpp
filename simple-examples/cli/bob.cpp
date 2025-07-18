@@ -8,7 +8,7 @@ using namespace std;
 int main(int argc, char* argv[]) {
     go_rebuild_yourself(argc, argv);
 
-    Cli cli(argc, argv, "Bob CLI Example");
+    Cli cli("Bob CLI Example", argc, argv);
 
     cli.add_arg("verbose", 'v', CliArgType::Flag, "Enable verbose output");
 

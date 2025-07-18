@@ -138,9 +138,11 @@ namespace bob {
         vector<string> parts;
 
     public:
+        path root;
+
         Cmd() = default;
 
-        Cmd (vector<string> &&parts) : parts(std::move(parts)) {}
+        Cmd (vector<string> &&parts, path root = ".") : parts(std::move(parts)), root(root) {}
 
         void push(const string &part) {
             parts.push_back(part);
@@ -161,7 +163,7 @@ namespace bob {
             return result;
         }
 
-        CmdFuture run_async(path root = "") const {
+        CmdFuture run_async() const {
             if (parts.empty() || parts[0].empty()) {
                 panic("No command to run.");
             }
@@ -200,8 +202,8 @@ namespace bob {
             return future;
         }
 
-        int run(path root = "") const {
-            return run_async(root).await();
+        int run() const {
+            return run_async().await();
         }
 
         void clear() {
@@ -724,7 +726,7 @@ namespace bob {
             set_defaults(argc, argv);
         }
 
-        Cli(int argc, char* argv[], string desc) : CliCommand("", desc) {
+        Cli(string title, int argc, char* argv[]) : CliCommand("", title) {
             set_defaults(argc, argv);
         }
 
