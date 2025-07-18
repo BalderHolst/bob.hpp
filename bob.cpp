@@ -31,7 +31,7 @@ int main(int argc, char* argv[]) {
         cmd.handle_help(); // Handle help argument if set
         for (const auto &arg : cmd.args) {
             cout << "    Argument: " << (arg.long_name.empty() ? "<empty>" : arg.long_name)
-                 << " (short: " << (arg.short_name ? string({arg.short_name, '\0'}) : "<empty>") << ")"
+                 << " (short: " << (arg.short_name ? string({arg.short_name}) : "<empty>") << ")"
                  << ", Type: " << (arg.type == CliArgType::Flag ? "Flag" : "Option")
                  << ", Value: " << (arg.value.empty() ? "<none>" : arg.value)
                  << ", Set: " << (arg.set ? "true" : "false") << endl;
