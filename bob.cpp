@@ -8,7 +8,7 @@ using namespace std;
 int main(int argc, char* argv[]) {
     go_rebuild_yourself(argc, argv);
 
-    Cli cli(argc, argv, "Bob CLI Example");
+    Cli cli("Bob CLI Example", argc, argv);
 
     cli.add_arg("verbose", 'v', CliArgType::Flag, "Enable verbose output");
 
@@ -27,7 +27,16 @@ int main(int argc, char* argv[]) {
             return EXIT_SUCCESS;
         });
 
-    cli.add_command("args", "Prints prints its arguments and their values", [](CliCommand &cmd) -> int {
+    cli.add_command("Values", "Prints the raw arguments passed to the CLI", [](CliCommand &cmd) -> int {
+        cmd.handle_help(); // Handle help argument if set
+        cout << "Arguments" << endl;
+        for (int i = 0; i < cmd.value_args.size(); ++i) {
+            cout << "    argv[" << i << "]: " << cmd.value_args[i] << endl;
+        }
+        return EXIT_SUCCESS;
+    });
+
+    cli.add_command("args", "Prints prints its flag arguments and their values", [](CliCommand &cmd) -> int {
         cmd.handle_help(); // Handle help argument if set
         for (const auto &arg : cmd.args) {
             cout << "    Argument: " << (arg.long_name.empty() ? "<empty>" : arg.long_name)

@@ -498,7 +498,11 @@ namespace bob {
                 }
 
                 if (arg_name[0] != '-') {
-                    return arg_name; // This is the next command name
+                    if (is_menu()) return arg_name; // This is the next command name
+                    else {
+                        value_args.push_back(arg_name); // This is a value argument
+                        continue;
+                    }
                 }
 
                 bool found = false;
@@ -545,6 +549,7 @@ namespace bob {
         }
 
     public:
+        vector<string> value_args; // Raw arguments passed to the command
         string name;
         CliCommandFunc func;
         string description;
@@ -563,9 +568,13 @@ namespace bob {
                 };
             }
 
+        bool is_menu() const {
+            return !commands.empty();
+        }
+
         void usage() const {
             if (!description.empty()) {
-                std::cout << description << "\n" << std::endl;
+                std::cout << description << std::endl;
             }
 
             size_t max_name_length = 0;
@@ -573,12 +582,14 @@ namespace bob {
                 max_name_length = std::max(max_name_length, cmd.name.length());
             }
 
-            std::cout << "Available commands:" << std::endl;
-            for (const auto &cmd : commands) {
-                std::cout << "    " << cmd.name << "     ";
-                size_t padding = max_name_length - cmd.name.length();
-                for (size_t i = 0; i < padding; ++i) std::cout << " ";
-                std::cout << cmd.description << std::endl;
+            if (!commands.empty()) {
+                std::cout << "\nAvailable commands:" << std::endl;
+                for (const auto &cmd : commands) {
+                    std::cout << "    " << cmd.name << "     ";
+                    size_t padding = max_name_length - cmd.name.length();
+                    for (size_t i = 0; i < padding; ++i) std::cout << " ";
+                    std::cout << cmd.description << std::endl;
+                }
             }
 
             if (!args.empty()) {
@@ -613,10 +624,11 @@ namespace bob {
         }
 
         int run(int argc, string argv[]) {
-
             string subcommand_name = parse_args(argc, argv);
 
             if (subcommand_name.empty()) return call_func();
+
+            if (!is_menu()) return call_func();
 
             // Find the subcommand
             for (auto &cmd : commands) {
