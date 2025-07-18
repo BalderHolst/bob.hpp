@@ -1,4 +1,4 @@
-#include "../bob.hpp"
+#include "../../bob.hpp"
 #include <cstdlib>
 #include <unistd.h>
 
@@ -9,17 +9,15 @@ int main(int argc, char* argv[]) {
 
     go_rebuild_yourself(argc, argv);
 
-    auto runner = CmdRunner(10);
+    auto runner = CmdRunner(3);
 
-    for (int i = 0; i <= 100; ++i) {
+    srand(0);
 
-        auto random = [] () {
-            return static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
-        };
+    for (int i = 0; i <= 20; ++i) {
 
         string script = "import time;"
                         "print('Job " + to_string(i) + " started...'); "
-                        "time.sleep(" + to_string(random()) + "); "
+                        "time.sleep(" + to_string((float) i / 20.0) + "); "
                         "print('Job + " + to_string(i) + " finished!')";
 
         auto cmd = Cmd({"python3", "-c", script});

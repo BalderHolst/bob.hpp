@@ -1,0 +1,23 @@
+./bob
+./bob --help
+./bob -h
+./bob bogos
+./bob hello
+./bob --error-flag
+./bob -e
+./bob -error
+
+./bob submenu
+./bob submenu subcommand1
+./bob submenu subcommand2
+./bob submenu doesnotexist
+./bob submenu -h
+
+./bob args --an-argument
+./bob args --an-argument value
+./bob args --flag -f
+./bob args -f -v
+./bob args -f -v -a
+./bob args -f -v -a arg-val
+./bob args -f -v -h
+./bob args bogus

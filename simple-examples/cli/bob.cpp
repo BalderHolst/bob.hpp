@@ -1,4 +1,4 @@
-#include "../bob.hpp"
+#include "../../bob.hpp"
 #include <cstdlib>
 #include <unistd.h>
 
