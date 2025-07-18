@@ -17,15 +17,15 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     });
 
-    cli.add_command("submenu", "A submenu of commands").subcommand()
-        .add_command("subcommand1", "A subcommand in the submenu", [](CliCommand &cmd) {
-            cout << "This is the FIRST subcommand!!" << endl;
-            return EXIT_SUCCESS;
-        })
-        .add_command("subcommand2", "A subcommand in the submenu", [](CliCommand &cmd) {
-            cout << "This is the SECOND subcommand!!" << endl;
-            return EXIT_SUCCESS;
-        });
+    CliCommand &submenu = cli.add_command("submenu", "A submenu of commands");
+    submenu.add_command("subcommand1", "A subcommand in the submenu", [](CliCommand &cmd) {
+        cout << "This is the FIRST subcommand!!" << endl;
+        return EXIT_SUCCESS;
+    });
+    submenu.add_command("subcommand2", "A subcommand in the submenu", [](CliCommand &cmd) {
+        cout << "This is the SECOND subcommand!!" << endl;
+        return EXIT_SUCCESS;
+    });
 
     cli.add_command("path", "Prints the path of this command", [](CliCommand &cmd) -> int {
         cmd.handle_help();
@@ -56,7 +56,7 @@ int main(int argc, char* argv[]) {
                  << ", Set: " << (flag.set ? "true" : "false") << endl;
         }
         return EXIT_SUCCESS;
-    }).subcommand()
+    })
         .add_arg("an-argument", 'a', CliFlagType::Value, "An argument with a value")
         .add_arg("flag",        'f', CliFlagType::Bool,   "A simple flag argument")
         .add_arg("better-v",    'v', CliFlagType::Bool,   "A better -v flag than the global one");

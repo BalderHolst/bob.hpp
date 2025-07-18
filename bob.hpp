@@ -672,7 +672,7 @@ namespace bob {
 
         CliCommand& add_command(CliCommand command) {
             commands.push_back(command);
-            return *this;
+            return commands[commands.size() - 1];
         }
 
         CliCommand& add_command(const string &name, string description, CliCommandFunc func) {
@@ -689,10 +689,6 @@ namespace bob {
 
         CliCommand& add_command(const string &name) {
             return add_command(CliCommand(name));
-        }
-
-        CliCommand& subcommand() {
-            return commands[commands.size() - 1];
         }
 
         CliCommand& add_arg(const CliArg &arg) {
