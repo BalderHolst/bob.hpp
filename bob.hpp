@@ -18,7 +18,83 @@ namespace bob {
     using std::vector;
     using fs::path;
 
+    struct CmdFuture {
+        pid_t cpid;
+        bool done;
+        int exit_status;
+        CmdFuture();
+        int await();
+        bool poll();
+    };
+
+    class Cmd {
+        vector<string> parts;
+    public:
+        path root;
+        Cmd() = default;
+        Cmd (vector<string> &&parts, path root = ".");
+        void push(const string &part);
+        void push_many(const vector<string> &parts);
+        string render() const;
+        CmdFuture run_async() const;
+        int run() const;
+        void clear();
+    };
+
     #define go_rebuild_yourself(argc, argv) bob::_go_rebuild_yourself(argc, argv, __FILE__)
+
+    namespace term {
+        // Reset Style
+        const std::string RESET       = "\033[0m";
+
+        // Regular Colors
+        const std::string BLACK       = "\033[30m";
+        const std::string RED         = "\033[31m";
+        const std::string GREEN       = "\033[32m";
+        const std::string YELLOW      = "\033[33m";
+        const std::string BLUE        = "\033[34m";
+        const std::string MAGENTA     = "\033[35m";
+        const std::string CYAN        = "\033[36m";
+        const std::string WHITE       = "\033[37m";
+
+        // Bright Colors
+        const std::string BRIGHT_BLACK   = "\033[90m";
+        const std::string BRIGHT_RED     = "\033[91m";
+        const std::string BRIGHT_GREEN   = "\033[92m";
+        const std::string BRIGHT_YELLOW  = "\033[93m";
+        const std::string BRIGHT_BLUE    = "\033[94m";
+        const std::string BRIGHT_MAGENTA = "\033[95m";
+        const std::string BRIGHT_CYAN    = "\033[96m";
+        const std::string BRIGHT_WHITE   = "\033[97m";
+
+        // Background Colors
+        const std::string BG_BLACK       = "\033[40m";
+        const std::string BG_RED         = "\033[41m";
+        const std::string BG_GREEN       = "\033[42m";
+        const std::string BG_YELLOW      = "\033[43m";
+        const std::string BG_BLUE        = "\033[44m";
+        const std::string BG_MAGENTA     = "\033[45m";
+        const std::string BG_CYAN        = "\033[46m";
+        const std::string BG_WHITE       = "\033[47m";
+
+        // Bright Backgrounds
+        const std::string BG_BRIGHT_BLACK   = "\033[100m";
+        const std::string BG_BRIGHT_RED     = "\033[101m";
+        const std::string BG_BRIGHT_GREEN   = "\033[102m";
+        const std::string BG_BRIGHT_YELLOW  = "\033[103m";
+        const std::string BG_BRIGHT_BLUE    = "\033[104m";
+        const std::string BG_BRIGHT_MAGENTA = "\033[105m";
+        const std::string BG_BRIGHT_CYAN    = "\033[106m";
+        const std::string BG_BRIGHT_WHITE   = "\033[107m";
+
+        // Text styles
+        const std::string BOLD        = "\033[1m";
+        const std::string DIM         = "\033[2m";
+        const std::string UNDERLINE   = "\033[4m";
+        const std::string BLINK       = "\033[5m";
+        const std::string INVERT      = "\033[7m";
+        const std::string HIDDEN      = "\033[8m";
+    }
 
     inline void log(string msg) {
         std::cout << msg << std::endl;
@@ -26,11 +102,74 @@ namespace bob {
 
     [[noreturn]]
     inline void panic(string msg) {
-        std::cerr << "[ERROR] " << msg << std::endl;
+        std::cerr << term::RED << "[ERROR] " << msg << term::RESET << std::endl;
         exit(1);
     }
 
     inline string I(path p) { return "-I" + p.string(); }
+
+    // Check if a binary is in the system PATH
+    inline path is_in_path(const string &bin_name) {
+        string path_env = getenv("PATH");
+        if (path_env.empty()) panic("PATH environment variable is not set.");
+
+        // Iterate through each directory in PATH seperated by ':'
+        size_t start = 0;
+        size_t end   = path_env.find(':');
+
+        while (end != string::npos) {
+            string dir = path_env.substr(start, end - start);
+            path bin = fs::path(dir) / bin_name;
+            if (fs::exists(bin)) {
+                return bin;
+            }
+            start = end + 1;
+            end = path_env.find(':', start);
+        }
+
+        return "";
+    }
+
+    inline void ensure_installed(vector<string> packages) {
+        bool all_installed = true;
+        vector<path> installed(packages.size(), "");
+
+        for (int i = 0; i < packages.size(); ++i) {
+            const string &pkg = packages[i];
+            installed[i] = is_in_path(pkg);
+            all_installed &= !installed[i].empty();
+        }
+
+        if (all_installed) return;
+
+        size_t max_length = 0;
+        for (const auto &pkg : packages) {
+            max_length = std::max(max_length, pkg.length());
+        }
+
+        std::cout << "\nThis project requires the following packages to be installed:\n\n";
+        for (int i = 0; i < packages.size(); ++i) {
+
+            if (installed[i].empty()) std::cout << term::RED;
+            else                      std::cout << term::GREEN;
+
+
+            if (installed[i].empty()) {
+                std::cout << "    [✗]" << packages[i];
+            } else {
+                std::cout << "    [✓]" << packages[i];
+                for (size_t j = packages[i].length(); j < max_length; ++j) {
+                    std::cout << " ";
+                }
+                std::cout << " - " << installed[i].string();
+
+            }
+
+            std::cout << term::RESET << std::endl;
+        }
+
+        exit(EXIT_FAILURE);
+    }
 
     struct Unit {};
 
@@ -96,120 +235,106 @@ namespace bob {
         }
     };
 
-    struct CmdFuture {
-        pid_t cpid;
-        bool done;
-        int exit_status;
+    CmdFuture::CmdFuture() : cpid(-1), done(false), exit_status(-1) {}
 
-        CmdFuture() : cpid(-1), done(false), exit_status(-1) {}
-
-        int await() {
-            int status;
-            if (!done) {
-                waitpid(cpid, &status, 0);
-                if (WIFEXITED(status)) {
-                    exit_status = WEXITSTATUS(status);
-                } else {
-                    panic("Child process did not terminate normally.");
-                }
-            }
-
-            done = true;
-            return exit_status;
-        }
-
-        bool poll() {
-            if (done) return true;
-            int status;
-            pid_t result = waitpid(cpid, &status, WNOHANG);
-
-            if (result == -1) panic("Error while polling child process: " + string(strerror(errno)));
-
-            if (result == 0) return false;
-
-            done = true;
-            if (WIFEXITED(status)) exit_status = WEXITSTATUS(status);
-            else panic("Child process did not terminate normally.");
-            return true;
-        }
-    };
-
-    class Cmd {
-        vector<string> parts;
-
-    public:
-        path root;
-
-        Cmd() = default;
-
-        Cmd (vector<string> &&parts, path root = ".") : parts(std::move(parts)), root(root) {}
-
-        void push(const string &part) {
-            parts.push_back(part);
-        }
-
-        void push_many(const vector<string> &parts) {
-            for (const auto &part : parts) {
-                this->parts.push_back(part);
+    int CmdFuture::await() {
+        int status;
+        if (!done) {
+            waitpid(cpid, &status, 0);
+            if (WIFEXITED(status)) {
+                exit_status = WEXITSTATUS(status);
+            } else {
+                panic("Child process did not terminate normally.");
             }
         }
 
-        string render() const {
-            string result;
-            for (const auto &part : parts) {
-                if (!result.empty()) result += " ";
-                result += part;
-            }
-            return result;
+        done = true;
+        return exit_status;
+    }
+
+    bool CmdFuture::poll() {
+        if (done) return true;
+        int status;
+        pid_t result = waitpid(cpid, &status, WNOHANG);
+
+        if (result == -1) panic("Error while polling child process: " + string(strerror(errno)));
+
+        if (result == 0) return false;
+
+        done = true;
+        if (WIFEXITED(status)) exit_status = WEXITSTATUS(status);
+        else panic("Child process did not terminate normally.");
+        return true;
+    }
+
+
+    Cmd::Cmd(vector<string> &&parts, path root) : parts(std::move(parts)), root(root) {}
+
+    void Cmd::push(const string &part) {
+        parts.push_back(part);
+    }
+
+    void Cmd::push_many(const vector<string> &parts) {
+        for (const auto &part : parts) {
+            this->parts.push_back(part);
+        }
+    }
+
+    string Cmd::render() const {
+        string result;
+        for (const auto &part : parts) {
+            if (!result.empty()) result += " ";
+            result += part;
+        }
+        return result;
+    }
+
+    CmdFuture Cmd::run_async() const {
+        if (parts.empty() || parts[0].empty()) {
+            panic("No command to run.");
         }
 
-        CmdFuture run_async() const {
-            if (parts.empty() || parts[0].empty()) {
-                panic("No command to run.");
+        std::cout << "CMD: " << render() << std::endl;
+
+        pid_t cpid = fork();
+        if (cpid < 0) {
+            panic("Could not fork process: " + string(strerror(errno)));
+        }
+
+        if (cpid == 0) {
+            vector<char *> args;
+            for (auto &part : parts) {
+                args.push_back(const_cast<char *>(part.c_str()));
             }
+            args.push_back(nullptr);
 
-            std::cout << "CMD: " << render() << std::endl;
-
-            pid_t cpid = fork();
-            if (cpid < 0) {
-                panic("Could not fork process: " + string(strerror(errno)));
-            }
-
-            if (cpid == 0) {
-                vector<char *> args;
-                for (auto &part : parts) {
-                    args.push_back(const_cast<char *>(part.c_str()));
-                }
-                args.push_back(nullptr);
-
-                // Set the current working directory if specified
-                if (!root.empty()) {
-                    if (chdir(root.c_str()) < 0) {
-                        std::cerr << "Could not change directory to " << root << ": " << strerror(errno) << std::endl;
-                        exit(EXIT_FAILURE);
-                    }
-                }
-
-                if (execvp(args[0], args.data()) < 0) {
-                    std::cerr << "Could not exec child process: " << strerror(errno) << std::endl;
+            // Set the current working directory if specified
+            if (!root.empty()) {
+                if (chdir(root.c_str()) < 0) {
+                    std::cerr << "Could not change directory to " << root << ": " << strerror(errno) << std::endl;
                     exit(EXIT_FAILURE);
                 }
-                exit(EXIT_SUCCESS);
             }
 
-            CmdFuture future;
-
-            return future;
+            if (execvp(args[0], args.data()) < 0) {
+                std::cerr << "Could not exec child process: " << strerror(errno) << std::endl;
+                exit(EXIT_FAILURE);
+            }
+            exit(EXIT_SUCCESS);
         }
 
-        int run() const {
-            return run_async().await();
-        }
+        CmdFuture future;
 
-        void clear() {
-            parts.clear();
-        }
-    };
+        return future;
+    }
+
+    int Cmd::run() const {
+        return run_async().await();
+    }
+
+    void Cmd::clear() {
+        parts.clear();
+    }
 
     class CmdRunner {
         std::queue<Cmd, std::deque<Cmd>> cmd_queue;

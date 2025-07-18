@@ -6,8 +6,9 @@ using namespace bob;
 using namespace std;
 
 int main(int argc, char* argv[]) {
-
     go_rebuild_yourself(argc, argv);
+
+    ensure_installed({"python3"});
 
     auto runner = CmdRunner(3);
 
