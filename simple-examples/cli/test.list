@@ -13,11 +13,18 @@
 ./bob submenu doesnotexist
 ./bob submenu -h
 
-./bob args --an-argument
-./bob args --an-argument value
-./bob args --flag -f
-./bob args -f -v
-./bob args -f -v -a
-./bob args -f -v -a arg-val
-./bob args -f -v -h
-./bob args bogus
+./bob path
+./bob path -h
+
+./bob args one two three
+./bob args one two three -h
+./bob args one two three --unexpected
+
+./bob flags --an-argument
+./bob flags --an-argument value
+./bob flags --flag -f
+./bob flags -f -v
+./bob flags -f -v -a
+./bob flags -f -v -a arg-val
+./bob flags -f -v -h
+./bob flags bogus
