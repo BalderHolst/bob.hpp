@@ -1,3 +1,6 @@
+#ifndef BOB_H_
+#define BOB_H_
+
 #include <cstring>
 #include <filesystem>
 #include <iostream>
@@ -13,10 +16,68 @@
 namespace fs = std::filesystem;
 
 namespace bob {
-
     using std::string;
     using std::vector;
     using fs::path;
+
+    struct Unit {};
+
+    #define go_rebuild_yourself(argc, argv) bob::_go_rebuild_yourself(argc, argv, __FILE__)
+
+    void rebuild_yourself(fs::path bin, fs::path src);
+    int run_yourself(fs::path bin, int argc, char* argv[]);
+    void _go_rebuild_yourself(int argc, char* argv[], path source_file_name);
+
+    template<typename T, typename E>
+    union ResultValue {
+        T success;
+        E error;
+        ResultValue() {}
+        ~ResultValue() {}
+    };
+
+    template<typename T>
+    struct Ok {
+        T value;
+        Ok(const T& val) : value(val) {}
+        Ok(T&& val) : value(std::forward<T>(val)) {}
+    };
+
+    template<typename E>
+    struct Err {
+        E error;
+        Err(const E& err) : error(err) {}
+        Err(E&& err) : error(std::forward<E>(err)) {}
+    };
+
+    template<typename T, typename E>
+    class Result {
+        ResultValue<T, E> value;
+        bool status; // true = success, false = error
+    public:
+        Result(const Ok<T>& ok);
+        Result(const Err<E>& err);
+        Result(Ok<T>&& ok);
+        Result(Err<E>&& err);
+        ~Result();
+
+        bool is_ok() const;
+        bool is_err() const;
+
+        Ok<T> get_ok();
+        Err<T> get_err();
+        const T& unwrap() const;
+        const E& unwrap_err() const;
+    };
+
+    [[noreturn]] void panic(string msg);
+    void log(string msg);
+    path dir(path dir);
+    string I(path p);
+    path is_in_path(const string &bin_name);
+    void ensure_installed(vector<string> packages);
+    Result<path, Unit> find_root(string marker_file);
+    Result<path, string> git_root();
 
     struct CmdFuture {
         pid_t cpid;
@@ -41,7 +102,95 @@ namespace bob {
         void clear();
     };
 
-    #define go_rebuild_yourself(argc, argv) bob::_go_rebuild_yourself(argc, argv, __FILE__)
+    class CmdRunner {
+        std::queue<Cmd, std::deque<Cmd>> cmd_queue;
+        size_t process_count;
+        vector<CmdFuture> slots;
+        bool populate_slots();
+        void await_slots();
+    public:
+        CmdRunner(size_t process_count);
+        CmdRunner(vector<Cmd> cmds);
+        CmdRunner();
+        void push(const Cmd &cmd);
+        void push_many(const vector<Cmd> &cmds);
+        void run();
+    };
+
+    enum class CliFlagType {
+        Bool,
+        Value
+    };
+
+    struct CliArg {
+        char    short_name  = '\0';
+        string  long_name   = "";
+        string  description = "";
+        bool    set         = false; // Only used for boolean flags
+        string  value       = "";    // Only used for options with values
+        CliFlagType type;
+
+        CliArg(const string &long_name, CliFlagType type, string description = "");
+        CliArg(char short_name, CliFlagType type, string description = "");
+        CliArg(char short_name, const string &long_name, CliFlagType type, string description = "");
+        bool is_flag() const;
+        bool is_option() const;
+    };
+
+    typedef std::vector<CliArg> CliArgs;
+
+    void print_cli_args(const CliArgs &args);
+
+    class CliCommand;
+    typedef std::function<int(CliCommand&)> CliCommandFunc;
+
+    class CliCommand {
+    public:
+        vector<string> path; // Path to the command, e.g. {"./bob", "test", "run"}
+        vector<string> args; // Arguments that are not flags
+        string name;         // TODO: Make this function
+        CliCommandFunc func;
+        string description;
+        vector<CliArg> flags;
+        vector<CliCommand> commands;
+
+    private:
+        [[noreturn]]
+        void cli_panic(const string &msg);
+        string parse_args(int argc, string argv[]);
+        int call_func();
+
+    public:
+        CliCommand(const string &name, CliCommandFunc func, const string &description = "");
+        CliCommand(const string &name, const string &description = "");
+        bool is_menu() const;
+        void usage() const;
+        CliArg* find_short(char name);
+        CliArg* find_long(string name);
+        void handle_help();
+        int run(int argc, string argv[]);
+        void set_description(const string &desc);
+        void set_default_command(CliCommandFunc f);
+        CliCommand& add_command(CliCommand command);
+        CliCommand& add_command(const string &name, string description, CliCommandFunc func);
+        CliCommand& add_command(const string &name, string description);
+        CliCommand& add_command(const string &name, CliCommandFunc func);
+        CliCommand& add_command(const string &name);
+        CliCommand& add_arg(const CliArg &arg);
+        CliCommand& add_arg(char short_name, CliFlagType type, string description = "");
+        CliCommand& add_arg(const string &long_name, CliFlagType type, string description = "");
+        CliCommand& add_arg(char short_name, const string &long_name, CliFlagType type, string description = "");
+        CliCommand& add_arg(const string &long_name, char short_name, CliFlagType type, string description = "");
+    };
+
+    class Cli : public CliCommand {
+        vector<string> raw_args;
+        void set_defaults(int argc, char* argv[]);
+    public:
+        Cli(int argc, char* argv[]);
+        Cli(string title, int argc, char* argv[]);
+        int serve();
+    };
 
     namespace term {
         // Reset Style
@@ -96,20 +245,128 @@ namespace bob {
         const std::string HIDDEN      = "\033[8m";
     }
 
-    inline void log(string msg) {
+}
+
+#endif // BOB_H_
+
+#ifdef BOB_IMPLEMENTATION
+
+namespace bob {
+
+    void rebuild_yourself(fs::path bin, fs::path src) {
+        string src_str = src.string();
+        string bin_str = bin.string();
+
+        auto compile_cmd = Cmd({"g++", src_str, "-o", bin_str});
+
+        int status = compile_cmd.run();
+
+        if (status != 0) {
+            std::cerr << "Rebuild failed with status: " << status << std::endl;
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    int run_yourself(fs::path bin, int argc, char* argv[]) {
+        fs::path bin_path = fs::relative(bin);
+        auto run_cmd = Cmd({"./" + bin_path.string()});
+        for (int i = 1; i < argc; ++i) run_cmd.push(argv[i]);
+        std::cout << std::endl;
+        log("Running...");
+        return run_cmd.run();
+    }
+
+    void _go_rebuild_yourself(int argc, char* argv[], path source_file_name) {
+        assert(argc > 0 && "No program provided via argv[0]");
+
+        path root = fs::current_path();
+
+        path executable_path = fs::relative(argv[0], root);
+        path source_path     = fs::relative(source_file_name, root);
+        path header_path     = __FILE__;
+
+        bool rebuild_needed = false;
+
+        assert(fs::exists(executable_path) && "Executable should exist, is running right now!");
+
+        struct stat stats;
+
+        if (stat(executable_path.c_str(), &stats) != 0) {
+            std::cerr << "Could not stat executable: " << strerror(errno) << std::endl;
+            return;
+        }
+
+        time_t exe_mtime = stats.st_mtime;
+
+        if (stat(source_path.c_str(), &stats) != 0) {
+            std::cerr << "Could not stat source file: " << strerror(errno) << std::endl;
+            return;
+        }
+
+        time_t src_mtime = stats.st_mtime;
+
+        rebuild_needed |= exe_mtime < src_mtime;
+
+        if (stat(header_path.c_str(), &stats) != 0) {
+            std::cerr << "Could not stat header file: " << strerror(errno) << std::endl;
+            return;
+        }
+
+        time_t hdr_mtime = stats.st_mtime;
+
+        rebuild_needed |= exe_mtime < hdr_mtime;
+
+        if (rebuild_needed) {
+            log("Rebuilding the executable...");
+            rebuild_yourself(executable_path, source_path);
+            exit(run_yourself(executable_path, argc, argv));
+        }
+
+    }
+
+    Result<path, Unit> find_root(string marker_file) {
+        fs::path git_root = fs::current_path();
+        while (git_root != git_root.root_path()) {
+            if (fs::exists(git_root / marker_file)) {
+                return Ok(git_root);
+            }
+            git_root = git_root.parent_path();
+        }
+        return Err(Unit());
+    }
+
+    Result<path, string> git_root() {
+        auto res = find_root(".git");
+        if (res.is_ok()) return res.get_ok();
+        else return Err<string>("You are not in a git repository.");
+    }
+
+    // Create the directory if it does not exist. Returns the absolute path of the directory.
+    path dir(path dir) {
+        if (!fs::exists(dir)) {
+            log("Creating directory: " + dir.string());
+            if (!fs::create_directories(dir)) {
+                std::cerr << "Failed to create directory: " << dir << std::endl;
+                exit(EXIT_FAILURE);
+            }
+        }
+        return fs::absolute(dir);
+    }
+
+    void log(string msg) {
         std::cout << msg << std::endl;
     }
 
     [[noreturn]]
-    inline void panic(string msg) {
+    void panic(string msg) {
         std::cerr << term::RED << "[ERROR] " << msg << term::RESET << std::endl;
         exit(1);
     }
 
-    inline string I(path p) { return "-I" + p.string(); }
+    string I(path p) { return "-I" + p.string(); }
 
     // Check if a binary is in the system PATH
-    inline path is_in_path(const string &bin_name) {
+    path is_in_path(const string &bin_name) {
         string path_env = getenv("PATH");
         if (path_env.empty()) panic("PATH environment variable is not set.");
 
@@ -130,7 +387,7 @@ namespace bob {
         return "";
     }
 
-    inline void ensure_installed(vector<string> packages) {
+    void ensure_installed(vector<string> packages) {
         bool all_installed = true;
         vector<path> installed(packages.size(), "");
 
@@ -171,69 +428,53 @@ namespace bob {
         exit(EXIT_FAILURE);
     }
 
-    struct Unit {};
+    template<typename T, typename E>
+    Result<T, E>::Result(const Ok<T>& ok)   : status(true)  { new (&value.success) T(ok.value); }
 
     template<typename T, typename E>
-    union ResultValue {
-        T success;
-        E error;
-
-        ResultValue() {}
-        ~ResultValue() {}
-    };
-
-    template<typename T>
-    struct Ok {
-        T value;
-        Ok(const T& val) : value(val) {}
-        Ok(T&& val) : value(std::forward<T>(val)) {}
-    };
-
-    template<typename E>
-    struct Err {
-        E error;
-        Err(const E& err) : error(err) {}
-        Err(E&& err) : error(std::forward<E>(err)) {}
-    };
+    Result<T, E>::Result(const Err<E>& err) : status(false) { new (&value.error)   E(err.error); }
 
     template<typename T, typename E>
-    class Result {
-        ResultValue<T, E> value;
-        bool status; // true = success, false = error
-    public:
-        Result(const Ok<T>& ok)   : status(true)  { new (&value.success) T(ok.value); }
-        Result(const Err<E>& err) : status(false) { new (&value.error)   E(err.error); }
-        Result(Ok<T>&& ok)        : status(true)  { new (&value.success) T(std::move(ok.value)); }
-        Result(Err<E>&& err)      : status(false) { new (&value.error)   E(std ::move(err.error)); }
+    Result<T, E>::Result(Ok<T>&& ok)        : status(true)  { new (&value.success) T(std::move(ok.value)); }
 
-        ~Result() {
-            if (status) value.success.~T();
-            else value.error.~E();
-        }
+    template<typename T, typename E>
+    Result<T, E>::Result(Err<E>&& err)      : status(false) { new (&value.error)   E(std ::move(err.error)); }
 
-        bool is_ok() const { return status; }
-        bool is_err() const { return !status; }
+    template<typename T, typename E>
+    Result<T, E>::~Result() {
+        if (status) value.success.~T();
+        else value.error.~E();
+    }
 
-        Ok<T> get_ok() {
-            if (!status) throw std::logic_error("Called `get_ok` on an error Result");
-            return value.success;
-        }
+    template<typename T, typename E>
+    bool Result<T, E>::is_ok() const { return status; }
 
-        Err<T> get_err() {
-            if (status) throw std::logic_error("Called `get_err` on a success Result");
-            return value.error;
-        }
+    template<typename T, typename E>
+    bool Result<T, E>::is_err() const { return !status; }
 
-        const T& unwrap() const {
-            if (!status) throw std::logic_error("Called `unwrap` on an error Result");
-            return value.success;
-        }
+    template<typename T, typename E>
+    Ok<T> Result<T, E>::get_ok() {
+        if (!status) throw std::logic_error("Called `get_ok` on an error Result");
+        return value.success;
+    }
 
-        const E& unwrap_err() const {
-            if (status) throw std::logic_error("Called `unwrap_err` on a success Result");
-            return value.error;
-        }
-    };
+    template<typename T, typename E>
+    Err<T> Result<T, E>::get_err() {
+        if (status) throw std::logic_error("Called `get_err` on a success Result");
+        return value.error;
+    }
+
+    template<typename T, typename E>
+    const T& Result<T, E>::unwrap() const {
+        if (!status) throw std::logic_error("Called `unwrap` on an error Result");
+        return value.success;
+    }
+
+    template<typename T, typename E>
+    const E& Result<T, E>::unwrap_err() const {
+        if (status) throw std::logic_error("Called `unwrap_err` on a success Result");
+        return value.error;
+    }
 
     CmdFuture::CmdFuture() : cpid(-1), done(false), exit_status(-1) {}
 
@@ -336,215 +577,74 @@ namespace bob {
         parts.clear();
     }
 
-    class CmdRunner {
-        std::queue<Cmd, std::deque<Cmd>> cmd_queue;
-        size_t process_count;
-        vector<CmdFuture> slots;
+    bool CmdRunner::populate_slots() {
+        bool did_work = false;
+        for (size_t i = 0; i < process_count; ++i) {
+            bool fut_done = slots[i].poll();
+            if (!fut_done) continue;
 
-        bool populate_slots() {
-            bool did_work = false;
-            for (size_t i = 0; i < process_count; ++i) {
-                bool fut_done = slots[i].poll();
-                if (!fut_done) continue;
+            if (cmd_queue.empty()) continue;
 
-                if (cmd_queue.empty()) continue;
-
-                // Populate slot with a new command
-                auto cmd = cmd_queue.front();
-                cmd_queue.pop();
-                slots[i] = cmd.run_async();
-                did_work = true;
-            }
-            return did_work;
+            // Populate slot with a new command
+            auto cmd = cmd_queue.front();
+            cmd_queue.pop();
+            slots[i] = cmd.run_async();
+            did_work = true;
         }
+        return did_work;
+    }
 
-        void await_slots() {
-            for (CmdFuture &slot : slots) {
-                slot.await();
-            }
+    void CmdRunner::await_slots() {
+        for (CmdFuture &slot : slots) {
+            slot.await();
         }
+    }
 
-    public:
-        CmdRunner(size_t process_count):
-            process_count(process_count),
-            slots(vector<CmdFuture>(process_count))
-        {
-            for (CmdFuture &slot : slots) slot.done = true;
-            assert(process_count > 0 && "Process count must be greater than 0");
-        };
-
-        CmdRunner(vector<Cmd> cmds) :
-            process_count(sysconf(_SC_NPROCESSORS_ONLN)),
-            slots(vector<CmdFuture>(process_count))
-        {
-            for (CmdFuture &slot : slots) slot.done = true;
-            if (process_count == 0) process_count = 1; // Fallback
-            push_many(cmds);
-        }
-
-        CmdRunner():
-            process_count(sysconf(_SC_NPROCESSORS_ONLN)),
-            slots(vector<CmdFuture>(process_count))
-        {
-            for (CmdFuture &slot : slots) slot.done = true;
-            if (process_count == 0) process_count = 1; // Fallback
-        }
-
-        void push(const Cmd &cmd) {
-            cmd_queue.push(cmd);
-        }
-
-        void push_many(const vector<Cmd> &cmds) {
-            for (const auto &cmd : cmds) {
-                this->cmd_queue.push(cmd);
-            }
-        }
-
-        void run() {
-            populate_slots();
-            while (!cmd_queue.empty()) {
-                if (populate_slots()) continue;
-                usleep(10000);
-            }
-            await_slots();
-        }
+    CmdRunner::CmdRunner(size_t process_count):
+        process_count(process_count),
+        slots(vector<CmdFuture>(process_count))
+    {
+        for (CmdFuture &slot : slots) slot.done = true;
+        assert(process_count > 0 && "Process count must be greater than 0");
     };
 
-    Result<path, Unit> inline find_root(string marker_file) {
-        fs::path git_root = fs::current_path();
-        while (git_root != git_root.root_path()) {
-            if (fs::exists(git_root / marker_file)) {
-                return Ok(git_root);
-            }
-            git_root = git_root.parent_path();
-        }
-        return Err(Unit());
+    CmdRunner::CmdRunner(vector<Cmd> cmds) :
+        process_count(sysconf(_SC_NPROCESSORS_ONLN)),
+        slots(vector<CmdFuture>(process_count))
+    {
+        for (CmdFuture &slot : slots) slot.done = true;
+        if (process_count == 0) process_count = 1; // Fallback
+        push_many(cmds);
     }
 
-    Result<path, string> inline git_root() {
-        auto res = find_root(".git");
-        if (res.is_ok()) return res.get_ok();
-        else return Err<string>("You are not in a git repository.");
+    CmdRunner::CmdRunner():
+        process_count(sysconf(_SC_NPROCESSORS_ONLN)),
+        slots(vector<CmdFuture>(process_count))
+    {
+        for (CmdFuture &slot : slots) slot.done = true;
+        if (process_count == 0) process_count = 1; // Fallback
     }
 
-    // Create the directory if it does not exist. Returns the absolute path of the directory.
-    inline path dir(path dir) {
-        if (!fs::exists(dir)) {
-            log("Creating directory: " + dir.string());
-            if (!fs::create_directories(dir)) {
-                std::cerr << "Failed to create directory: " << dir << std::endl;
-                exit(EXIT_FAILURE);
-            }
-        }
-        return fs::absolute(dir);
+    void CmdRunner::push(const Cmd &cmd) {
+        cmd_queue.push(cmd);
     }
 
-    inline void rebuild_yourself(fs::path bin, fs::path src) {
-
-        string src_str = src.string();
-        string bin_str = bin.string();
-
-        auto compile_cmd = Cmd({"g++", src_str, "-o", bin_str});
-
-        int status = compile_cmd.run();
-
-        if (status != 0) {
-            std::cerr << "Rebuild failed with status: " << status << std::endl;
-            exit(EXIT_FAILURE);
+    void CmdRunner::push_many(const vector<Cmd> &cmds) {
+        for (const auto &cmd : cmds) {
+            this->cmd_queue.push(cmd);
         }
     }
 
-    inline int run_yourself(fs::path bin, int argc, char* argv[]) {
-        fs::path bin_path = fs::relative(bin);
-        auto run_cmd = Cmd({"./" + bin_path.string()});
-        for (int i = 1; i < argc; ++i) run_cmd.push(argv[i]);
-        std::cout << std::endl;
-        log("Running...");
-        return run_cmd.run();
+    void CmdRunner::run() {
+        populate_slots();
+        while (!cmd_queue.empty()) {
+            if (populate_slots()) continue;
+            usleep(10000);
+        }
+        await_slots();
     }
 
-    inline void _go_rebuild_yourself(int argc, char* argv[], path source_file_name) {
-        assert(argc > 0 && "No program provided via argv[0]");
-
-        path root = fs::current_path();
-
-        path executable_path = fs::relative(argv[0], root);
-        path source_path     = fs::relative(source_file_name, root);
-        path header_path     = __FILE__;
-
-        bool rebuild_needed = false;
-
-        assert(fs::exists(executable_path) && "Executable should exist, is running right now!");
-
-        struct stat stats;
-
-        if (stat(executable_path.c_str(), &stats) != 0) {
-            std::cerr << "Could not stat executable: " << strerror(errno) << std::endl;
-            return;
-        }
-
-        time_t exe_mtime = stats.st_mtime;
-
-        if (stat(source_path.c_str(), &stats) != 0) {
-            std::cerr << "Could not stat source file: " << strerror(errno) << std::endl;
-            return;
-        }
-
-        time_t src_mtime = stats.st_mtime;
-
-        rebuild_needed |= exe_mtime < src_mtime;
-
-        if (stat(header_path.c_str(), &stats) != 0) {
-            std::cerr << "Could not stat header file: " << strerror(errno) << std::endl;
-            return;
-        }
-
-        time_t hdr_mtime = stats.st_mtime;
-
-        rebuild_needed |= exe_mtime < hdr_mtime;
-
-        if (rebuild_needed) {
-            log("Rebuilding the executable...");
-            rebuild_yourself(executable_path, source_path);
-            exit(run_yourself(executable_path, argc, argv));
-        }
-
-    }
-
-    enum class CliFlagType {
-        Bool,
-        Value
-    };
-
-    struct CliArg {
-        char    short_name  = '\0';
-        string  long_name   = "";
-        string  description = "";
-        bool    set         = false; // Only used for boolean flags
-        string  value       = "";    // Only used for options with values
-        CliFlagType type;
-
-        CliArg(const string &long_name, CliFlagType type, string description = ""):
-            long_name(long_name), type(type), description(description) {};
-
-        CliArg(char short_name, CliFlagType type, string description = ""):
-            short_name(short_name), type(type), description(description) {};
-
-        CliArg(char short_name, const string &long_name, CliFlagType type, string description = ""):
-            short_name(short_name), long_name(long_name), type(type), description(description) {};
-
-        bool is_flag() const {
-            return type == CliFlagType::Bool;
-        }
-
-        bool is_option() const {
-            return type == CliFlagType::Value;
-        }
-    };
-
-    typedef std::vector<CliArg> CliArgs;
-
-    inline void print_cli_args(const CliArgs &args) {
+    void print_cli_args(const CliArgs &args) {
         auto arg_len = [](const CliArg &arg) {
             size_t len = 0;
             if (arg.short_name != '\0') len += 2;                           // "-x"
@@ -599,281 +699,275 @@ namespace bob {
         }
     }
 
-    class CliCommand;
-    typedef std::function<int(CliCommand&)> CliCommandFunc;
+    CliArg::CliArg(const string &long_name, CliFlagType type, string description):
+            long_name(long_name), type(type), description(description) {};
 
-    class CliCommand {
-    public:
-        vector<string> path; // Path to the command, e.g. {"./bob", "test", "run"}
-        vector<string> args; // Raw arguments passed to the command
-        string name;
-        CliCommandFunc func;
-        string description;
-        vector<CliArg> flags;
-        vector<CliCommand> commands;
+    CliArg::CliArg(char short_name, CliFlagType type, string description):
+            short_name(short_name), type(type), description(description) {};
 
-    private:
-        [[noreturn]]
-        void cli_panic(const string &msg) {
-            std::cerr << "[ERROR] " << msg << "\n" << std::endl;
-            usage();
-            exit(EXIT_FAILURE);
-        }
+    CliArg::CliArg(char short_name, const string &long_name, CliFlagType type, string description):
+            short_name(short_name), long_name(long_name), type(type), description(description) {};
 
-        string parse_args(int argc, string argv[]) {
-            assert(argc >= 0 && "Argc must be non-negative");
+    bool CliArg::is_flag() const {
+        return type == CliFlagType::Bool;
+    }
 
-            for (; argc > 0; --argc, ++argv) {
+    bool CliArg::is_option() const {
+        return type == CliFlagType::Value;
+    }
 
-                string arg_name = *argv;
+    [[noreturn]]
+    void CliCommand::cli_panic(const string &msg) {
+        std::cerr << "[ERROR] " << msg << "\n" << std::endl;
+        usage();
+        exit(EXIT_FAILURE);
+    }
 
-                if (arg_name.empty()) {
-                    cli_panic("Empty argument found in command line arguments.");
+    string CliCommand::parse_args(int argc, string argv[]) {
+        assert(argc >= 0 && "Argc must be non-negative");
+
+        for (; argc > 0; --argc, ++argv) {
+
+            string arg_name = *argv;
+
+            if (arg_name.empty()) {
+                cli_panic("Empty argument found in command line arguments.");
+            }
+
+            if (arg_name[0] != '-') {
+                if (is_menu()) return arg_name; // This is the next command name
+                else {
+                    args.push_back(arg_name); // This is a value argument
+                    continue;
                 }
+            }
 
-                if (arg_name[0] != '-') {
-                    if (is_menu()) return arg_name; // This is the next command name
-                    else {
-                        args.push_back(arg_name); // This is a value argument
-                        continue;
+            bool found = false;
+
+            for (CliArg &arg : flags) {
+
+                bool short_name_matches = arg.short_name != '\0'
+                    && arg_name.length() == 2
+                    && arg_name[0] == '-'
+                    && arg_name[1] == arg.short_name;
+
+                bool long_name_matches = !arg.long_name.empty()
+                    && arg_name.length() > 2
+                    && arg_name.substr(0, 2) == "--"
+                    && arg_name.substr(2) == arg.long_name;
+
+                // Short argument
+                if (short_name_matches || long_name_matches) {
+                    found = true;
+                    switch (arg.type) {
+                        case CliFlagType::Bool:
+                            arg.set = true;
+                            break;
+                        case CliFlagType::Value:
+                            if (argc <= 1) cli_panic("Expected value for argument: " + arg_name);
+                            argc--;
+                            argv++;
+                            arg.value = *argv;
+                            arg.set = true;
+                            break;
                     }
                 }
-
-                bool found = false;
-
-                for (CliArg &arg : flags) {
-
-                    bool short_name_matches = arg.short_name != '\0'
-                        && arg_name.length() == 2
-                        && arg_name[0] == '-'
-                        && arg_name[1] == arg.short_name;
-
-                    bool long_name_matches = !arg.long_name.empty()
-                        && arg_name.length() > 2
-                        && arg_name.substr(0, 2) == "--"
-                        && arg_name.substr(2) == arg.long_name;
-
-                    // Short argument
-                    if (short_name_matches || long_name_matches) {
-                        found = true;
-                        switch (arg.type) {
-                            case CliFlagType::Bool:
-                                arg.set = true;
-                                break;
-                            case CliFlagType::Value:
-                                if (argc <= 1) cli_panic("Expected value for argument: " + arg_name);
-                                argc--;
-                                argv++;
-                                arg.value = *argv;
-                                arg.set = true;
-                                break;
-                        }
-                    }
-                }
-
-                if (!found) cli_panic("Unknown argument: " + arg_name);
             }
 
-            return ""; // No next command
+            if (!found) cli_panic("Unknown argument: " + arg_name);
         }
 
-        int call_func() {
-            if (!func) cli_panic("No function set for command: " + name);
-            return func(*this);
+        return ""; // No next command
+    }
+
+    int CliCommand::call_func() {
+        if (!func) cli_panic("No function set for command: " + name);
+        return func(*this);
+    }
+
+    CliCommand::CliCommand(const string &name, CliCommandFunc func, const string &description)
+       : name(name), func(func), description(description) {}
+
+    CliCommand::CliCommand(const string &name, const string &description)
+        : CliCommand(name, nullptr, description) {
+            func = [] (CliCommand &cmd) {
+                std::cout << "No command provided.\n" << std::endl;
+                cmd.usage();
+                return EXIT_FAILURE;
+            };
         }
 
-    public:
+    bool CliCommand::is_menu() const {
+        return !commands.empty();
+    }
 
-        CliCommand(const string &name, CliCommandFunc func, const string &description = "")
-           : name(name), func(func), description(description) {}
-
-        CliCommand(const string &name, const string &description = "")
-            : CliCommand(name, nullptr, description) {
-                func = [] (CliCommand &cmd) {
-                    std::cout << "No command provided.\n" << std::endl;
-                    cmd.usage();
-                    return EXIT_FAILURE;
-                };
-            }
-
-        bool is_menu() const {
-            return !commands.empty();
+    void CliCommand::usage() const {
+        if (!description.empty()) {
+            std::cout << description << std::endl;
         }
 
-        void usage() const {
-            if (!description.empty()) {
-                std::cout << description << std::endl;
-            }
+        size_t max_name_length = 0;
+        for (const auto &cmd : commands) {
+            max_name_length = std::max(max_name_length, cmd.name.length());
+        }
 
-            size_t max_name_length = 0;
+        if (!commands.empty()) {
+            std::cout << "\nAvailable commands:" << std::endl;
             for (const auto &cmd : commands) {
-                max_name_length = std::max(max_name_length, cmd.name.length());
+                std::cout << "    " << cmd.name << "     ";
+                size_t padding = max_name_length - cmd.name.length();
+                for (size_t i = 0; i < padding; ++i) std::cout << " ";
+                std::cout << cmd.description << std::endl;
             }
+        }
 
-            if (!commands.empty()) {
-                std::cout << "\nAvailable commands:" << std::endl;
-                for (const auto &cmd : commands) {
-                    std::cout << "    " << cmd.name << "     ";
-                    size_t padding = max_name_length - cmd.name.length();
-                    for (size_t i = 0; i < padding; ++i) std::cout << " ";
-                    std::cout << cmd.description << std::endl;
+        if (!flags.empty()) {
+            std::cout << "\nArguments:" << std::endl;
+            print_cli_args(flags);
+        }
+    }
+
+    CliArg* CliCommand::find_short(char name) {
+        for (CliArg &arg : flags) {
+            if (arg.short_name == name) return &arg;
+        }
+        return nullptr; // Not found
+    }
+
+    CliArg* CliCommand::find_long(string name) {
+        for (CliArg &arg : flags) {
+            if (arg.long_name == name) return &arg;
+        }
+        return nullptr; // Not found
+    }
+
+    void CliCommand::handle_help() {
+        CliArg *help_arg = find_long("help");
+        if (!help_arg) help_arg = find_short('h');
+        if (!help_arg) return; // No help argument found
+
+        if (!help_arg->set) return;
+
+        usage();
+        exit(EXIT_SUCCESS);
+    }
+
+    int CliCommand::run(int argc, string argv[]) {
+        string subcommand_name = parse_args(argc, argv);
+
+        if (subcommand_name.empty()) return call_func();
+
+        if (!is_menu()) return call_func();
+
+        vector<string> subcommand_path = path;
+        subcommand_path.push_back(subcommand_name);
+
+        // Find the subcommand
+        for (auto &cmd : commands) {
+            if (cmd.name == subcommand_name) {
+
+                // Pass parent args to subcommand in reverse
+                // order to keep --help as the last argument
+                for (int i = flags.size() - 1; i >= 0; --i) {
+                    CliArg &arg = flags[i];
+
+                    // Skip if the argument is already set
+                    if (cmd.find_short(arg.short_name)) continue;
+                    if (cmd.find_long(arg.long_name))   continue;
+
+                    cmd.add_arg(arg);
                 }
+
+                cmd.path = subcommand_path;
+
+                // Skip this command name
+                return cmd.run(argc-1, argv+1);
             }
-
-            if (!flags.empty()) {
-                std::cout << "\nArguments:" << std::endl;
-                print_cli_args(flags);
-            }
         }
 
-        CliArg* find_short(char name) {
-            for (CliArg &arg : flags) {
-                if (arg.short_name == name) return &arg;
-            }
-            return nullptr; // Not found
-        }
+        cli_panic("Unknown command: " + subcommand_name);
+    }
 
-        CliArg* find_long(string name) {
-            for (CliArg &arg : flags) {
-                if (arg.long_name == name) return &arg;
-            }
-            return nullptr; // Not found
-        }
+    void CliCommand::set_description(const string &desc) {
+        description = desc;
+    }
 
-        void handle_help() {
-            CliArg *help_arg = find_long("help");
-            if (!help_arg) help_arg = find_short('h');
-            if (!help_arg) return; // No help argument found
+    void CliCommand::set_default_command(CliCommandFunc f) {
+        func = f;
+    }
 
-            if (!help_arg->set) return;
+    CliCommand& CliCommand::add_command(CliCommand command) {
+        commands.push_back(command);
+        return commands[commands.size() - 1];
+    }
 
-            usage();
-            exit(EXIT_SUCCESS);
-        }
+    CliCommand& CliCommand::add_command(const string &name, string description, CliCommandFunc func) {
+        return add_command(CliCommand(name, func, description));
+    }
 
-        int run(int argc, string argv[]) {
-            string subcommand_name = parse_args(argc, argv);
+    CliCommand& CliCommand::add_command(const string &name, string description) {
+        return add_command(CliCommand(name, description));
+    }
 
-            if (subcommand_name.empty()) return call_func();
+    CliCommand& CliCommand::add_command(const string &name, CliCommandFunc func) {
+        return add_command(CliCommand(name, func));
+    }
 
-            if (!is_menu()) return call_func();
+    CliCommand& CliCommand::add_command(const string &name) {
+        return add_command(CliCommand(name));
+    }
 
-            vector<string> subcommand_path = path;
-            subcommand_path.push_back(subcommand_name);
+    CliCommand& CliCommand::add_arg(const CliArg &arg) {
+        CliArg * short_existing = find_short(arg.short_name);
+        CliArg * long_existing  = find_long(arg.long_name);
 
-            // Find the subcommand
-            for (auto &cmd : commands) {
-                if (cmd.name == subcommand_name) {
+        if (short_existing) panic("Short argument already exists: " + string({arg.short_name}));
+        if (long_existing)  panic("Long argument already exists: " + arg.long_name);
 
-                    // Pass parent args to subcommand in reverse
-                    // order to keep --help as the last argument
-                    for (int i = flags.size() - 1; i >= 0; --i) {
-                        CliArg &arg = flags[i];
+        flags.push_back(arg);
 
-                        // Skip if the argument is already set
-                        if (cmd.find_short(arg.short_name)) continue;
-                        if (cmd.find_long(arg.long_name))   continue;
+        return *this;
+    }
 
-                        cmd.add_arg(arg);
-                    }
+    CliCommand& CliCommand::add_arg(char short_name, CliFlagType type, string description) {
+        return add_arg(CliArg(short_name, type, description));
+    }
 
-                    cmd.path = subcommand_path;
+    CliCommand& CliCommand::add_arg(const string &long_name, CliFlagType type, string description) {
+        return add_arg(CliArg(long_name, type, description));
+    }
 
-                    // Skip this command name
-                    return cmd.run(argc-1, argv+1);
-                }
-            }
+    CliCommand& CliCommand::add_arg(char short_name, const string &long_name, CliFlagType type, string description) {
+        return add_arg(CliArg(short_name, long_name, type, description));
+    }
 
-            cli_panic("Unknown command: " + subcommand_name);
-        }
+    CliCommand& CliCommand::add_arg(const string &long_name, char short_name, CliFlagType type, string description) {
+        return add_arg(CliArg(short_name, long_name, type, description));
+    }
 
-        void set_description(const string &desc) {
-            description = desc;
-        }
+    void Cli::set_defaults(int argc, char* argv[]) {
+        assert(argc > 0 && "No program provided via argv[0]");
 
-        void set_default_command(CliCommandFunc f) {
-            func = f;
-        }
+        name = argv[0];
+        path.push_back(name);
 
-        CliCommand& add_command(CliCommand command) {
-            commands.push_back(command);
-            return commands[commands.size() - 1];
-        }
+        raw_args.assign(argv + 1, argv + argc);
 
-        CliCommand& add_command(const string &name, string description, CliCommandFunc func) {
-            return add_command(CliCommand(name, func, description));
-        }
+        // Add help argument. This will be inherited by all sub commands.
+        add_arg("help", 'h', CliFlagType::Bool, "Prints this help message");
+    }
 
-        CliCommand& add_command(const string &name, string description) {
-            return add_command(CliCommand(name, description));
-        }
+    Cli::Cli(int argc, char* argv[]): CliCommand("") {
+        set_defaults(argc, argv);
+    }
 
-        CliCommand& add_command(const string &name, CliCommandFunc func) {
-            return add_command(CliCommand(name, func));
-        }
+    Cli::Cli(string title, int argc, char* argv[]) : CliCommand("", title) {
+        set_defaults(argc, argv);
+    }
 
-        CliCommand& add_command(const string &name) {
-            return add_command(CliCommand(name));
-        }
-
-        CliCommand& add_arg(const CliArg &arg) {
-            CliArg * short_existing = find_short(arg.short_name);
-            CliArg * long_existing  = find_long(arg.long_name);
-
-            if (short_existing) panic("Short argument already exists: " + string({arg.short_name}));
-            if (long_existing)  panic("Long argument already exists: " + arg.long_name);
-
-            flags.push_back(arg);
-
-            return *this;
-        }
-
-        CliCommand& add_arg(char short_name, CliFlagType type, string description = "") {
-            return add_arg(CliArg(short_name, type, description));
-        }
-
-        CliCommand& add_arg(const string &long_name, CliFlagType type, string description = "") {
-            return add_arg(CliArg(long_name, type, description));
-        }
-
-        CliCommand& add_arg(char short_name, const string &long_name, CliFlagType type, string description = "") {
-            return add_arg(CliArg(short_name, long_name, type, description));
-        }
-
-        CliCommand& add_arg(const string &long_name, char short_name, CliFlagType type, string description = "") {
-            return add_arg(CliArg(short_name, long_name, type, description));
-        }
-
-    };
-
-
-    class Cli : public CliCommand {
-        vector<string> raw_args;
-
-        void set_defaults(int argc, char* argv[]) {
-            assert(argc > 0 && "No program provided via argv[0]");
-
-            name = argv[0];
-            path.push_back(name);
-
-            raw_args.assign(argv + 1, argv + argc);
-
-            // Add help argument. This will be inherited by all sub commands.
-            add_arg("help", 'h', CliFlagType::Bool, "Prints this help message");
-        }
-
-    public:
-
-        Cli(int argc, char* argv[]): CliCommand("") {
-            set_defaults(argc, argv);
-        }
-
-        Cli(string title, int argc, char* argv[]) : CliCommand("", title) {
-            set_defaults(argc, argv);
-        }
-
-        int serve() {
-            return run(raw_args.size(), raw_args.data());
-        }
-    };
+    int Cli::serve() {
+        return run(raw_args.size(), raw_args.data());
+    }
 }
+
+#endif // BOB_IMPLEMENTATION

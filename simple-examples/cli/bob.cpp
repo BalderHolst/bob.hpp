@@ -1,4 +1,6 @@
+#define BOB_IMPLEMENTATION
 #include "../../bob.hpp"
+
 #include <cstdlib>
 #include <unistd.h>
 
