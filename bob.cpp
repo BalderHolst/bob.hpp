@@ -27,8 +27,18 @@ int main(int argc, char* argv[]) {
             return EXIT_SUCCESS;
         });
 
+    cli.add_command("path", "Prints the path of this command", [](CliCommand &cmd) -> int {
+        cmd.handle_help();
+        cout << "Path: ";
+        for (const auto &part : cmd.path) {
+            cout << part << " ";
+        }
+        cout << endl;
+        return EXIT_SUCCESS;
+    });
+
     cli.add_command("args", "Prints the arguments passed to the CLI", [](CliCommand &cmd) -> int {
-        cmd.handle_help(); // Handle help argument if set
+        cmd.handle_help();
         cout << "Arguments:" << endl;
         for (int i = 0; i < cmd.args.size(); ++i) {
             cout << "    argv[" << i << "]: " << cmd.args[i] << endl;
@@ -37,7 +47,7 @@ int main(int argc, char* argv[]) {
     });
 
     cli.add_command("flags", "Prints prints its flag arguments and their values", [](CliCommand &cmd) -> int {
-        cmd.handle_help(); // Handle help argument if set
+        cmd.handle_help();
         for (const auto &flag : cmd.flags) {
             cout << "    Argument: " << (flag.long_name.empty() ? "<empty>" : flag.long_name)
                  << " (short: " << (flag.short_name ? string({flag.short_name}) : "<empty>") << ")"

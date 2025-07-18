@@ -478,7 +478,16 @@ namespace bob {
     typedef std::function<int(CliCommand&)> CliCommandFunc;
 
     class CliCommand {
+    public:
+        vector<string> path; // Path to the command, e.g. {"./bob", "test", "run"}
+        vector<string> args; // Raw arguments passed to the command
+        string name;
+        CliCommandFunc func;
+        string description;
+        vector<CliArg> flags;
+        vector<CliCommand> commands;
 
+    private:
         [[noreturn]]
         void cli_panic(const string &msg) {
             std::cerr << "[ERROR] " << msg << "\n" << std::endl;
@@ -549,12 +558,6 @@ namespace bob {
         }
 
     public:
-        vector<string> args; // Raw arguments passed to the command
-        string name;
-        CliCommandFunc func;
-        string description;
-        vector<CliArg> flags;
-        vector<CliCommand> commands;
 
         CliCommand(const string &name, CliCommandFunc func, const string &description = "")
            : name(name), func(func), description(description) {}
@@ -630,6 +633,9 @@ namespace bob {
 
             if (!is_menu()) return call_func();
 
+            vector<string> subcommand_path = path;
+            subcommand_path.push_back(subcommand_name);
+
             // Find the subcommand
             for (auto &cmd : commands) {
                 if (cmd.name == subcommand_name) {
@@ -645,6 +651,8 @@ namespace bob {
 
                         cmd.add_arg(arg);
                     }
+
+                    cmd.path = subcommand_path;
 
                     // Skip this command name
                     return cmd.run(argc-1, argv+1);
@@ -725,6 +733,7 @@ namespace bob {
             assert(argc > 0 && "No program provided via argv[0]");
 
             name = argv[0];
+            path.push_back(name);
 
             raw_args.assign(argv + 1, argv + argc);
 
@@ -746,6 +755,4 @@ namespace bob {
             return run(raw_args.size(), raw_args.data());
         }
     };
-
-
 }
