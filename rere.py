@@ -62,7 +62,7 @@ def capture(shell: str) -> dict:
 
 def load_list(file_path: str) -> list[str]:
     with open(file_path) as f:
-        return [line.strip() for line in f]
+        return list(filter(lambda l: l != "", map(str.strip, f.readlines())))
 
 def dump_snapshots(file_path: str, snapshots: list[dict]):
     with open(file_path, "wb") as f:
