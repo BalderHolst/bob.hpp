@@ -87,9 +87,10 @@ namespace bob {
 
     [[noreturn]] void panic(string msg);
     void log(string msg);
-    path dir(path dir);
+    path mkdirs(path dir);
     string I(path p);
-    path is_in_path(const string &bin_name);
+    path search_path(const string &bin_name);
+    void checklist(const vector<string> &items, const vector<bool> &statuses);
     void ensure_installed(vector<string> packages);
     Result<path, Unit> find_root(string marker_file);
     Result<path, string> git_root();
@@ -110,8 +111,9 @@ namespace bob {
         path root;
         Cmd() = default;
         Cmd (vector<string> &&parts, path root = ".");
-        void push(const string &part);
-        void push_many(const vector<string> &parts);
+        Cmd& push(const string &part);
+        Cmd& push_many(const vector<string> &parts);
+        Cmd& push_many(const vector<path> &parts);
         string render() const;
         CmdFuture run_async() const;
         int run() const;
@@ -133,6 +135,58 @@ namespace bob {
         void push(const Cmd &cmd);
         void push_many(const vector<Cmd> &cmds);
         void run();
+    };
+
+    typedef std::function<void(const vector<path>&, const vector<path>&)> RecipeFunc;
+    class Recipe {
+    public:
+        vector<path> inputs;
+        vector<path> outputs;
+        RecipeFunc func;
+
+        Recipe(const vector<path> &outputs, const vector<path> &inputs, RecipeFunc func)
+            : inputs(inputs), outputs(outputs), func(func) {}
+
+        void build() const {
+            {
+                vector<bool> exists(inputs.size(), true);
+                bool any_missing = false;
+                for (int i = 0; i < inputs.size(); ++i) {
+                    if (!fs::exists(inputs[i])) {
+                        exists[i] = false;
+                        any_missing = true;
+                    }
+                }
+                if (any_missing) {
+                    std::cerr << "[ERROR] Recipe inputs are missing:" << std::endl;
+                    vector<string> input_strings;
+                    for (auto &input : inputs) input_strings.push_back(input.string());
+                    checklist(input_strings, exists);
+                    exit(EXIT_FAILURE);
+                }
+            }
+
+            func(inputs, outputs);
+
+            {
+                vector<bool> exists(outputs.size(), true);
+                bool any_missing = false;
+                for (int i = 0; i < outputs.size(); ++i) {
+                    if (!fs::exists(outputs[i])) {
+                        exists[i] = false;
+                        any_missing = true;
+                    }
+                }
+                if (any_missing) {
+                    std::cerr << "[ERROR] Recipe did not produce expected outputs:" << std::endl;
+                    vector<string> output_strings;
+                    for (auto &input : outputs) output_strings.push_back(input.string());
+                    checklist(output_strings, exists);
+                    exit(EXIT_FAILURE);
+                }
+            }
+
+        }
     };
 
     enum class CliFlagType {
@@ -360,7 +414,7 @@ namespace bob {
     }
 
     // Create the directory if it does not exist. Returns the absolute path of the directory.
-    path dir(path dir) {
+    path mkdirs(path dir) {
         if (!fs::exists(dir)) {
             log("Creating directory: " + dir.string());
             if (!fs::create_directories(dir)) {
@@ -384,7 +438,7 @@ namespace bob {
     string I(path p) { return "-I" + p.string(); }
 
     // Check if a binary is in the system PATH
-    path is_in_path(const string &bin_name) {
+    path search_path(const string &bin_name) {
         string path_env = getenv("PATH");
         if (path_env.empty()) panic("PATH environment variable is not set.");
 
@@ -405,43 +459,45 @@ namespace bob {
         return "";
     }
 
+    void checklist(const vector<string> &items, const vector<bool> &statuses) {
+        if (items.size() != statuses.size()) {
+            panic("Checklist items and statuses must have the same length.");
+        }
+
+        size_t max_length = 0;
+        for (const auto &item : items) {
+            max_length = std::max(max_length, item.length());
+        }
+
+        std::cout << std::endl;
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (statuses[i]) std::cout << term::GREEN;
+            else             std::cout << term::RED;
+
+            std::cout << "    [" << (statuses[i] ? "✓" : "✗") << "] " << items[i];
+            for (size_t j = items[i].length(); j < max_length; ++j) {
+                std::cout << " ";
+            }
+            std::cout << term::RESET << std::endl;
+        }
+        std::cout << std::endl;
+    }
+
     void ensure_installed(vector<string> packages) {
         bool all_installed = true;
-        vector<path> installed(packages.size(), "");
+        vector<path> installed_path(packages.size(), "");
+        vector<bool> installed(packages.size(), false);
 
         for (int i = 0; i < packages.size(); ++i) {
             const string &pkg = packages[i];
-            installed[i] = is_in_path(pkg);
-            all_installed &= !installed[i].empty();
+            installed_path[i] = search_path(pkg);
+            installed[i] = !installed_path[i].empty();
+            all_installed &= installed[i];
         }
 
         if (all_installed) return;
 
-        size_t max_length = 0;
-        for (const auto &pkg : packages) {
-            max_length = std::max(max_length, pkg.length());
-        }
-
-        std::cout << "\nThis project requires the following packages to be installed:\n\n";
-        for (int i = 0; i < packages.size(); ++i) {
-
-            if (installed[i].empty()) std::cout << term::RED;
-            else                      std::cout << term::GREEN;
-
-
-            if (installed[i].empty()) {
-                std::cout << "    [✗] " << packages[i];
-            } else {
-                std::cout << "    [✓] " << packages[i];
-                for (size_t j = packages[i].length(); j < max_length; ++j) {
-                    std::cout << " ";
-                }
-                std::cout << " - " << installed[i].string();
-
-            }
-
-            std::cout << term::RESET << std::endl;
-        }
+        checklist(packages, installed);
 
         exit(EXIT_FAILURE);
     }
@@ -529,15 +585,25 @@ namespace bob {
 
     Cmd::Cmd(vector<string> &&parts, path root) : parts(std::move(parts)), root(root) {}
 
-    void Cmd::push(const string &part) {
+    Cmd& Cmd::push(const string &part) {
         parts.push_back(part);
+        return *this;
     }
 
-    void Cmd::push_many(const vector<string> &parts) {
+    Cmd& Cmd::push_many(const vector<string> &parts) {
         for (const auto &part : parts) {
             this->parts.push_back(part);
         }
+        return *this;
     }
+
+    Cmd& Cmd::push_many(const vector<path> &parts) {
+        for (const auto &part : parts) {
+            this->parts.push_back(part);
+        }
+        return *this;
+    }
+
 
     string Cmd::render() const {
         string result;
