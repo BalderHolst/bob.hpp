@@ -35,13 +35,11 @@ namespace bob {
     //! argument automatically.
     void _go_rebuild_yourself(int argc, char* argv[], path source_file_name);
 
-    //! Rebuilds the current executable from its source file.
-    //! This is used in the `_go_rebuild_yourself(int argc, char * argv[], path source_file_name)` function.
-    void rebuild_yourself(fs::path bin, fs::path src);
-
     //! Runs the current executable and returns the exit status.
     //! This is used in the `_go_rebuild_yourself(int argc, char * argv[], path source_file_name)` function.
     int run_yourself(fs::path bin, int argc, char* argv[]);
+
+    bool file_needs_rebuild(path output, path input);
 
     template<typename T, typename E>
     union ResultValue {
@@ -85,7 +83,9 @@ namespace bob {
         const E& unwrap_err() const;
     };
 
-    [[noreturn]] void panic(string msg);
+    #define PANIC(msg) bob::_panic(__FILE__, __LINE__, msg)
+
+    [[noreturn]] void _panic(path file, int line, string msg);
     void log(string msg);
     path mkdirs(path dir);
     string I(path p);
@@ -137,56 +137,18 @@ namespace bob {
         void run();
     };
 
+    typedef std::vector<fs::path> Paths;
     typedef std::function<void(const vector<path>&, const vector<path>&)> RecipeFunc;
+
     class Recipe {
     public:
-        vector<path> inputs;
-        vector<path> outputs;
+        Paths inputs;
+        Paths outputs;
         RecipeFunc func;
 
-        Recipe(const vector<path> &outputs, const vector<path> &inputs, RecipeFunc func)
-            : inputs(inputs), outputs(outputs), func(func) {}
-
-        void build() const {
-            {
-                vector<bool> exists(inputs.size(), true);
-                bool any_missing = false;
-                for (int i = 0; i < inputs.size(); ++i) {
-                    if (!fs::exists(inputs[i])) {
-                        exists[i] = false;
-                        any_missing = true;
-                    }
-                }
-                if (any_missing) {
-                    std::cerr << "[ERROR] Recipe inputs are missing:" << std::endl;
-                    vector<string> input_strings;
-                    for (auto &input : inputs) input_strings.push_back(input.string());
-                    checklist(input_strings, exists);
-                    exit(EXIT_FAILURE);
-                }
-            }
-
-            func(inputs, outputs);
-
-            {
-                vector<bool> exists(outputs.size(), true);
-                bool any_missing = false;
-                for (int i = 0; i < outputs.size(); ++i) {
-                    if (!fs::exists(outputs[i])) {
-                        exists[i] = false;
-                        any_missing = true;
-                    }
-                }
-                if (any_missing) {
-                    std::cerr << "[ERROR] Recipe did not produce expected outputs:" << std::endl;
-                    vector<string> output_strings;
-                    for (auto &input : outputs) output_strings.push_back(input.string());
-                    checklist(output_strings, exists);
-                    exit(EXIT_FAILURE);
-                }
-            }
-
-        }
+        Recipe(const Paths &outputs, const Paths &inputs, RecipeFunc func);
+        bool needs_rebuild() const;
+        void build() const;
     };
 
     enum class CliFlagType {
@@ -326,19 +288,7 @@ namespace bob {
 
 namespace bob {
 
-    void rebuild_yourself(fs::path bin, fs::path src) {
-        string src_str = src.string();
-        string bin_str = bin.string();
-
-        auto compile_cmd = Cmd({"g++", src_str, "-o", bin_str});
-
-        int status = compile_cmd.run();
-
-        if (status != 0) {
-            std::cerr << "Rebuild failed with status: " << status << std::endl;
-            exit(EXIT_FAILURE);
-        }
-    }
+    typedef std::vector<fs::path> Paths;
 
     int run_yourself(fs::path bin, int argc, char* argv[]) {
         fs::path bin_path = fs::relative(bin);
@@ -348,50 +298,49 @@ namespace bob {
         return run_cmd.run();
     }
 
+    bool file_needs_rebuild(path output, path input) {
+
+        assert(!output.empty());
+        assert(!input.empty());
+
+        if (!fs::exists(output)) return true;
+
+        struct stat stats;
+        if (stat(output.c_str(), &stats) != 0) {
+            PANIC("Could not stat output file '" + output.string() + "': " + strerror(errno));
+        }
+        time_t output_mtime = stats.st_mtime;
+
+        if (stat(input.c_str(), &stats) != 0) {
+            PANIC("Could not stat input file '" + input.string() + "': " + strerror(errno));
+        }
+        time_t input_mtime = stats.st_mtime;
+
+        return output_mtime < input_mtime;
+    }
+
     void _go_rebuild_yourself(int argc, char* argv[], path source_file_name) {
         assert(argc > 0 && "No program provided via argv[0]");
 
         path root = fs::current_path();
 
-        path executable_path = fs::relative(argv[0], root);
-        path source_path     = fs::relative(source_file_name, root);
-        path header_path     = __FILE__;
+        path binary_path = fs::relative(argv[0], root);
+        path source_path = fs::relative(source_file_name, root);
+        path header_path = __FILE__;
 
         bool rebuild_needed = false;
 
-        assert(fs::exists(executable_path) && "Executable should exist, is running right now!");
+        auto rebuild_yourself = Recipe(
+                {binary_path},
+                {source_path, header_path},
+                [binary_path, source_path](Paths, Paths) {
+                    Cmd({"g++", "-o", binary_path.string(), source_path.string()}).check();
+                }
+        );
 
-        struct stat stats;
-
-        if (stat(executable_path.c_str(), &stats) != 0) {
-            std::cerr << "Could not stat executable: " << strerror(errno) << std::endl;
-            return;
-        }
-
-        time_t exe_mtime = stats.st_mtime;
-
-        if (stat(source_path.c_str(), &stats) != 0) {
-            std::cerr << "Could not stat source file: " << strerror(errno) << std::endl;
-            return;
-        }
-
-        time_t src_mtime = stats.st_mtime;
-
-        rebuild_needed |= exe_mtime < src_mtime;
-
-        if (stat(header_path.c_str(), &stats) != 0) {
-            std::cerr << "Could not stat header file: " << strerror(errno) << std::endl;
-            return;
-        }
-
-        time_t hdr_mtime = stats.st_mtime;
-
-        rebuild_needed |= exe_mtime < hdr_mtime;
-
-        if (rebuild_needed) {
-            log("Rebuilding the executable...");
-            rebuild_yourself(executable_path, source_path);
-            exit(run_yourself(executable_path, argc, argv));
+        if (rebuild_yourself.needs_rebuild()) {
+            rebuild_yourself.build();
+            exit(run_yourself(binary_path, argc, argv));
         }
 
     }
@@ -430,8 +379,8 @@ namespace bob {
     }
 
     [[noreturn]]
-    void panic(string msg) {
-        std::cerr << term::RED << "[ERROR] " << msg << term::RESET << std::endl;
+    void _panic(path file, int line, string msg) {
+        std::cerr << term::RED << "[ERROR] " << file.string() << ":" << line << ": " << msg << term::RESET << std::endl;
         exit(1);
     }
 
@@ -440,7 +389,7 @@ namespace bob {
     // Check if a binary is in the system PATH
     path search_path(const string &bin_name) {
         string path_env = getenv("PATH");
-        if (path_env.empty()) panic("PATH environment variable is not set.");
+        if (path_env.empty()) PANIC("PATH environment variable is not set.");
 
         // Iterate through each directory in PATH seperated by ':'
         size_t start = 0;
@@ -461,7 +410,7 @@ namespace bob {
 
     void checklist(const vector<string> &items, const vector<bool> &statuses) {
         if (items.size() != statuses.size()) {
-            panic("Checklist items and statuses must have the same length.");
+            PANIC("Checklist items and statuses must have the same length.");
         }
 
         size_t max_length = 0;
@@ -559,7 +508,7 @@ namespace bob {
             if (WIFEXITED(status)) {
                 exit_status = WEXITSTATUS(status);
             } else {
-                panic("Child process did not terminate normally.");
+                PANIC("Child process did not terminate normally.");
             }
         }
 
@@ -572,13 +521,13 @@ namespace bob {
         int status;
         pid_t result = waitpid(cpid, &status, WNOHANG);
 
-        if (result == -1) panic("Error while polling child process: " + string(strerror(errno)));
+        if (result == -1) PANIC("Error while polling child process: " + string(strerror(errno)));
 
         if (result == 0) return false;
 
         done = true;
         if (WIFEXITED(status)) exit_status = WEXITSTATUS(status);
-        else panic("Child process did not terminate normally.");
+        else PANIC("Child process did not terminate normally.");
         return true;
     }
 
@@ -616,14 +565,14 @@ namespace bob {
 
     CmdFuture Cmd::run_async() const {
         if (parts.empty() || parts[0].empty()) {
-            panic("No command to run.");
+            PANIC("No command to run.");
         }
 
         std::cout << "CMD: " << render() << std::endl;
 
         pid_t cpid = fork();
         if (cpid < 0) {
-            panic("Could not fork process: " + string(strerror(errno)));
+            PANIC("Could not fork process: " + string(strerror(errno)));
         }
 
         if (cpid == 0) {
@@ -659,7 +608,7 @@ namespace bob {
 
     void Cmd::check() const {
         int exit_code = run();
-        if (exit_code != 0) panic("Command '" + render() + "' failed with exit status: " + std::to_string(exit_code));
+        if (exit_code != 0) PANIC("Command '" + render() + "' failed with exit status: " + std::to_string(exit_code));
     }
 
     void Cmd::clear() {
@@ -731,6 +680,62 @@ namespace bob {
             usleep(10000);
         }
         await_slots();
+    }
+
+    Recipe::Recipe(const Paths &outputs, const Paths &inputs, RecipeFunc func)
+            : inputs(inputs), outputs(outputs), func(func) {}
+
+    bool Recipe::needs_rebuild() const {
+        for (const auto &input : inputs) {
+            for (const auto &output : outputs) {
+                if (file_needs_rebuild(output, input)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    void Recipe::build() const {
+        {
+            vector<bool> exists(inputs.size(), true);
+            bool any_missing = false;
+            for (int i = 0; i < inputs.size(); ++i) {
+                if (!fs::exists(inputs[i])) {
+                    exists[i] = false;
+                    any_missing = true;
+                }
+            }
+            if (any_missing) {
+                std::cerr << "[ERROR] Recipe inputs are missing:" << std::endl;
+                vector<string> input_strings;
+                for (auto &input : inputs) input_strings.push_back(input.string());
+                checklist(input_strings, exists);
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        if (!needs_rebuild()) return;
+
+        func(inputs, outputs);
+
+        {
+            vector<bool> exists(outputs.size(), true);
+            bool any_missing = false;
+            for (int i = 0; i < outputs.size(); ++i) {
+                if (!fs::exists(outputs[i])) {
+                    exists[i] = false;
+                    any_missing = true;
+                }
+            }
+            if (any_missing) {
+                std::cerr << "[ERROR] Recipe did not produce expected outputs:" << std::endl;
+                vector<string> output_strings;
+                for (auto &input : outputs) output_strings.push_back(input.string());
+                checklist(output_strings, exists);
+                exit(EXIT_FAILURE);
+            }
+        }
     }
 
     void print_cli_args(const CliArgs &args) {
@@ -1022,8 +1027,8 @@ namespace bob {
         CliArg * short_existing = find_short(arg.short_name);
         CliArg * long_existing  = find_long(arg.long_name);
 
-        if (short_existing) panic("Short argument already exists: " + string({arg.short_name}));
-        if (long_existing)  panic("Long argument already exists: " + arg.long_name);
+        if (short_existing) PANIC("Short argument already exists: " + string({arg.short_name}));
+        if (long_existing)  PANIC("Long argument already exists: " + arg.long_name);
 
         flags.push_back(arg);
 

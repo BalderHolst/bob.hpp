@@ -67,6 +67,5 @@ Job + 19 finished!
 Job 20 started...
 Job + 20 finished!
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 

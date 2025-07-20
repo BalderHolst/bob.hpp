@@ -18,8 +18,7 @@ Arguments:
     -h, --help      Prints this help message
     -v, --verbose   Enable verbose output
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 12
 ./bob --help
@@ -40,8 +39,7 @@ Arguments:
     -h, --help      Prints this help message
     -v, --verbose   Enable verbose output
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 8
 ./bob -h
@@ -62,8 +60,7 @@ Arguments:
     -h, --help      Prints this help message
     -v, --verbose   Enable verbose output
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 11
 ./bob bogos
@@ -82,8 +79,7 @@ Arguments:
     -h, --help      Prints this help message
     -v, --verbose   Enable verbose output
 
-:b stderr 86
-Could not stat source file: No such file or directory
+:b stderr 32
 [ERROR] Unknown command: bogos
 
 
@@ -93,8 +89,7 @@ Could not stat source file: No such file or directory
 :b stdout 23
 Hello, my name is Bob!
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 18
 ./bob --error-flag
@@ -113,8 +108,7 @@ Arguments:
     -h, --help      Prints this help message
     -v, --verbose   Enable verbose output
 
-:b stderr 94
-Could not stat source file: No such file or directory
+:b stderr 40
 [ERROR] Unknown argument: --error-flag
 
 
@@ -135,8 +129,7 @@ Arguments:
     -h, --help      Prints this help message
     -v, --verbose   Enable verbose output
 
-:b stderr 84
-Could not stat source file: No such file or directory
+:b stderr 30
 [ERROR] Unknown argument: -e
 
 
@@ -157,8 +150,7 @@ Arguments:
     -h, --help      Prints this help message
     -v, --verbose   Enable verbose output
 
-:b stderr 88
-Could not stat source file: No such file or directory
+:b stderr 34
 [ERROR] Unknown argument: -error
 
 
@@ -178,8 +170,7 @@ Arguments:
     -v, --verbose   Enable verbose output
     -h, --help      Prints this help message
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 25
 ./bob submenu subcommand1
@@ -187,8 +178,7 @@ Could not stat source file: No such file or directory
 :b stdout 31
 This is the FIRST subcommand!!
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 25
 ./bob submenu subcommand2
@@ -196,8 +186,7 @@ Could not stat source file: No such file or directory
 :b stdout 32
 This is the SECOND subcommand!!
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 26
 ./bob submenu doesnotexist
@@ -213,8 +202,7 @@ Arguments:
     -v, --verbose   Enable verbose output
     -h, --help      Prints this help message
 
-:b stderr 93
-Could not stat source file: No such file or directory
+:b stderr 39
 [ERROR] Unknown command: doesnotexist
 
 
@@ -234,8 +222,7 @@ Arguments:
     -v, --verbose   Enable verbose output
     -h, --help      Prints this help message
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 10
 ./bob path
@@ -243,8 +230,7 @@ Could not stat source file: No such file or directory
 :b stdout 18
 Path: ./bob path 
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 13
 ./bob path -h
@@ -256,8 +242,7 @@ Arguments:
     -v, --verbose   Enable verbose output
     -h, --help      Prints this help message
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 24
 ./bob args one two three
@@ -268,8 +253,7 @@ Arguments:
     argv[1]: two
     argv[2]: three
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 27
 ./bob args one two three -h
@@ -281,8 +265,7 @@ Arguments:
     -v, --verbose   Enable verbose output
     -h, --help      Prints this help message
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 37
 ./bob args one two three --unexpected
@@ -294,8 +277,7 @@ Arguments:
     -v, --verbose   Enable verbose output
     -h, --help      Prints this help message
 
-:b stderr 94
-Could not stat source file: No such file or directory
+:b stderr 40
 [ERROR] Unknown argument: --unexpected
 
 
@@ -311,8 +293,7 @@ Arguments:
     -v, --better-v                   A better -v flag than the global one
     -h, --help                       Prints this help message
 
-:b stderr 106
-Could not stat source file: No such file or directory
+:b stderr 52
 [ERROR] Expected value for argument: --an-argument
 
 
@@ -325,8 +306,7 @@ Could not stat source file: No such file or directory
     Argument: better-v (short: v), Type: Flag, Value: <none>, Set: false
     Argument: help (short: h), Type: Flag, Value: <none>, Set: false
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 21
 ./bob flags --flag -f
@@ -337,8 +317,7 @@ Could not stat source file: No such file or directory
     Argument: better-v (short: v), Type: Flag, Value: <none>, Set: false
     Argument: help (short: h), Type: Flag, Value: <none>, Set: false
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 17
 ./bob flags -f -v
@@ -349,8 +328,7 @@ Could not stat source file: No such file or directory
     Argument: better-v (short: v), Type: Flag, Value: <none>, Set: true
     Argument: help (short: h), Type: Flag, Value: <none>, Set: false
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 20
 ./bob flags -f -v -a
@@ -364,8 +342,7 @@ Arguments:
     -v, --better-v                   A better -v flag than the global one
     -h, --help                       Prints this help message
 
-:b stderr 95
-Could not stat source file: No such file or directory
+:b stderr 41
 [ERROR] Expected value for argument: -a
 
 
@@ -378,8 +355,7 @@ Could not stat source file: No such file or directory
     Argument: better-v (short: v), Type: Flag, Value: <none>, Set: true
     Argument: help (short: h), Type: Flag, Value: <none>, Set: false
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 20
 ./bob flags -f -v -h
@@ -393,8 +369,7 @@ Arguments:
     -v, --better-v                   A better -v flag than the global one
     -h, --help                       Prints this help message
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 
 :b shell 17
 ./bob flags bogus
@@ -405,6 +380,5 @@ Could not stat source file: No such file or directory
     Argument: better-v (short: v), Type: Flag, Value: <none>, Set: false
     Argument: help (short: h), Type: Flag, Value: <none>, Set: false
 
-:b stderr 54
-Could not stat source file: No such file or directory
+:b stderr 0
 

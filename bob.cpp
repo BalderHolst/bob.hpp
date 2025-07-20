@@ -58,6 +58,14 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
     }
     test_runner.run();
 
+    // Remove executables
+    for (const auto &test_case : test_cases) {
+        path exe_path = test_case / "bob";
+        if (fs::exists(exe_path)) {
+            fs::remove(exe_path);
+        }
+    }
+
     return EXIT_SUCCESS;
 }
 

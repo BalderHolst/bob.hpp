@@ -3,7 +3,7 @@
 // External function
 int add(int a, int b);
 
-int main(int argc, char * argv[]) {
+int main() {
     int a = 10;
     int b = 20;
     printf("Adding %d and %d gives: %d\n", a, b, add(a, b));
