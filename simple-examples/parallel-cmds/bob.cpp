@@ -8,7 +8,7 @@ using namespace bob;
 using namespace std;
 
 int main(int argc, char* argv[]) {
-    go_rebuild_yourself(argc, argv);
+    GO_REBUILD_YOURSELF(argc, argv);
 
     ensure_installed({"python3"});
 

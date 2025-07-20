@@ -2,11 +2,13 @@
 import os
 import subprocess
 
-TEST_BIN = "./test"
+SRC = "./bob.cpp"
+BIN = "./bob"
 
 # Compile the test binary if it does not exist
-if not os.path.exists(TEST_BIN):
-    subprocess.run(["g++", "./test.cpp", "-o", TEST_BIN], check=True)
+if not os.path.exists(BIN):
+    print(f"Compiling {SRC} to {BIN}...")
+    subprocess.run(["g++", SRC, "-o", BIN], check=True)
 
 # Run the test binary
-subprocess.run([TEST_BIN], check=True)
+subprocess.run([BIN, "test"], check=True)

@@ -1,67 +1,109 @@
 #define BOB_IMPLEMENTATION
-
 #include "bob.hpp"
-#include <cstdlib>
-#include <unistd.h>
+
+#include <filesystem>
+#include <iostream>
 
 using namespace bob;
 using namespace std;
 
+const path TEST_DIR = path(__FILE__).parent_path().parent_path() / "simple-examples";
+
+enum class Action {
+    Record,
+    Replay,
+};
+
+vector<path> find_test_cases() {
+    vector<path> cases;
+    for (const auto &entry : fs::directory_iterator(TEST_DIR)) {
+        path test_case = entry.path();
+        if (fs::is_directory(test_case)) {
+            cases.push_back(test_case);
+        }
+    }
+    return cases;
+}
+
+int test(CliCommand &cmd, Action action, path test_case = "") {
+    cmd.handle_help();
+
+    vector<path> test_cases;
+    if (!test_case.empty()) {
+        test_cases.push_back(test_case);
+    }
+    else {
+        test_cases = find_test_cases();
+        if (test_cases.empty()) {
+            cerr << "No test cases found in " << TEST_DIR << endl;
+            return EXIT_FAILURE;
+        }
+    }
+
+    // Compile all test binaries
+    CmdRunner compile_runner;
+    for (const path &test_case : test_cases) {
+        compile_runner.push(Cmd({"g++", test_case / "bob.cpp", "-o", test_case / "bob"}));
+    }
+    compile_runner.run();
+
+    // Run the tests
+    CmdRunner test_runner;
+    for (const auto &test_case : test_cases) {
+        path rere_path = fs::relative(git_root().unwrap() / "rere.py", test_case);
+        test_runner.push(Cmd({
+                    rere_path,
+                    (action == Action::Record) ? "record" : "replay",
+                    "test.list"}, test_case));
+    }
+    test_runner.run();
+
+    return EXIT_SUCCESS;
+}
+
+void add_test_commands(Cli &cli) {
+    CliCommand &record = cli.add_command("record", "Record tests", [](CliCommand &cmd) {
+        return test(cmd, Action::Record);
+    });
+
+    CliCommand &replay = cli.add_command("replay", "Replay tests", [](CliCommand &cmd) {
+        return test(cmd, Action::Replay);
+    });
+
+    // Add a sub command for every test case
+    for (const auto &test_case : find_test_cases()) {
+        string test_name = test_case.filename().string();
+        record.add_command(test_name, "Record test case: " + test_name, [test_case](CliCommand &cmd) {
+            return test(cmd, Action::Record, test_case);
+        });
+        replay.add_command(test_name, "Replay test case: " + test_name, [test_case](CliCommand &cmd) {
+            return test(cmd, Action::Replay, test_case);
+        });
+    }
+
+    // Duplicate `replay` command as `test`
+    cli.add_command(replay.alias("test"));
+
+}
+
+void document(CliCommand &cmd) {
+    cmd.handle_help();
+    ensure_installed({"doxygen"});
+    path root = git_root().unwrap();
+    Cmd({"doxygen", "docs/Doxyfile"}, root).check();
+}
+
 int main(int argc, char* argv[]) {
-    go_rebuild_yourself(argc, argv);
+    GO_REBUILD_YOURSELF(argc, argv);
 
-    Cli cli("Bob CLI Example", argc, argv);
+    Cli cli("Task CLI for the bob.hpp project", argc, argv);
 
-    cli.add_arg("verbose", 'v', CliFlagType::Bool, "Enable verbose output");
+    add_test_commands(cli);
 
-    cli.add_command("hello", "Prints a hello message", [](CliCommand &_){
-        cout << "Hello, my name is Bob!" << endl;
-        return EXIT_FAILURE;
-    });
-
-    CliCommand &submenu = cli.add_command("submenu", "A submenu of commands");
-    submenu.add_command("subcommand1", "A subcommand in the submenu", [](CliCommand &cmd) {
-        cout << "This is the FIRST subcommand!!" << endl;
+    cli.add_command("doc", "Generate documentation", [](CliCommand &cmd) {
+        document(cmd);
         return EXIT_SUCCESS;
     });
-    submenu.add_command("subcommand2", "A subcommand in the submenu", [](CliCommand &cmd) {
-        cout << "This is the SECOND subcommand!!" << endl;
-        return EXIT_SUCCESS;
-    });
-
-    cli.add_command("path", "Prints the path of this command", [](CliCommand &cmd) -> int {
-        cmd.handle_help();
-        cout << "Path: ";
-        for (const auto &part : cmd.path) {
-            cout << part << " ";
-        }
-        cout << endl;
-        return EXIT_SUCCESS;
-    });
-
-    cli.add_command("args", "Prints the arguments passed to the CLI", [](CliCommand &cmd) -> int {
-        cmd.handle_help();
-        cout << "Arguments:" << endl;
-        for (int i = 0; i < cmd.args.size(); ++i) {
-            cout << "    argv[" << i << "]: " << cmd.args[i] << endl;
-        }
-        return EXIT_SUCCESS;
-    });
-
-    cli.add_command("flags", "Prints prints its flag arguments and their values", [](CliCommand &cmd) -> int {
-        cmd.handle_help();
-        for (const auto &flag : cmd.flags) {
-            cout << "    Argument: " << (flag.long_name.empty() ? "<empty>" : flag.long_name)
-                 << " (short: " << (flag.short_name ? string({flag.short_name}) : "<empty>") << ")"
-                 << ", Type: " << (flag.type == CliFlagType::Bool ? "Flag" : "Option")
-                 << ", Value: " << (flag.value.empty() ? "<none>" : flag.value)
-                 << ", Set: " << (flag.set ? "true" : "false") << endl;
-        }
-        return EXIT_SUCCESS;
-    })
-        .add_arg("an-argument", 'a', CliFlagType::Value, "An argument with a value")
-        .add_arg("flag",        'f', CliFlagType::Bool,   "A simple flag argument")
-        .add_arg("better-v",    'v', CliFlagType::Bool,   "A better -v flag than the global one");
 
     return cli.serve();
 }

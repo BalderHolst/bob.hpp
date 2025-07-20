@@ -15,6 +15,7 @@
 
 namespace fs = std::filesystem;
 
+//! Contains the core functionality of the Bob build system.
 namespace bob {
     using std::string;
     using std::vector;
@@ -22,11 +23,25 @@ namespace bob {
 
     struct Unit {};
 
-    #define go_rebuild_yourself(argc, argv) bob::_go_rebuild_yourself(argc, argv, __FILE__)
+    //! \def GO_REBUILD_YOURSELF(argc, argv)
+    //! Macro to rebuild the current executable from its source code if needed. The new executable
+    //! will be run with the same arguments as the current one. This function is best used at the
+    //! beginning of the `main` function.
+    #define GO_REBUILD_YOURSELF(argc, argv) bob::_go_rebuild_yourself(argc, argv, __FILE__)
 
-    void rebuild_yourself(fs::path bin, fs::path src);
-    int run_yourself(fs::path bin, int argc, char* argv[]);
+    //! Rebuilds the current executable from its source file. After building the new executable,
+    //! it will run the new executable with the same arguments as the current one. This function
+    //! is called with `GO_REBUILD_YOURSELF(argc, argv)` macro which provides the `source_file_name`
+    //! argument automatically.
     void _go_rebuild_yourself(int argc, char* argv[], path source_file_name);
+
+    //! Rebuilds the current executable from its source file.
+    //! This is used in the `_go_rebuild_yourself(int argc, char * argv[], path source_file_name)` function.
+    void rebuild_yourself(fs::path bin, fs::path src);
+
+    //! Runs the current executable and returns the exit status.
+    //! This is used in the `_go_rebuild_yourself(int argc, char * argv[], path source_file_name)` function.
+    int run_yourself(fs::path bin, int argc, char* argv[]);
 
     template<typename T, typename E>
     union ResultValue {
@@ -88,6 +103,7 @@ namespace bob {
         bool poll();
     };
 
+    //! Represents a command to be executed in the operating system shell.
     class Cmd {
         vector<string> parts;
     public:
@@ -99,6 +115,8 @@ namespace bob {
         string render() const;
         CmdFuture run_async() const;
         int run() const;
+        //! Runs the command and checks that it exited with status 0.
+        void check() const;
         void clear();
     };
 
@@ -181,6 +199,7 @@ namespace bob {
         CliCommand& add_arg(const string &long_name, CliFlagType type, string description = "");
         CliCommand& add_arg(char short_name, const string &long_name, CliFlagType type, string description = "");
         CliCommand& add_arg(const string &long_name, char short_name, CliFlagType type, string description = "");
+        CliCommand alias(const string &name, const string &description = "");
     };
 
     class Cli : public CliCommand {
@@ -272,7 +291,6 @@ namespace bob {
         auto run_cmd = Cmd({"./" + bin_path.string()});
         for (int i = 1; i < argc; ++i) run_cmd.push(argv[i]);
         std::cout << std::endl;
-        log("Running...");
         return run_cmd.run();
     }
 
@@ -412,9 +430,9 @@ namespace bob {
 
 
             if (installed[i].empty()) {
-                std::cout << "    [✗]" << packages[i];
+                std::cout << "    [✗] " << packages[i];
             } else {
-                std::cout << "    [✓]" << packages[i];
+                std::cout << "    [✓] " << packages[i];
                 for (size_t j = packages[i].length(); j < max_length; ++j) {
                     std::cout << " ";
                 }
@@ -571,6 +589,11 @@ namespace bob {
 
     int Cmd::run() const {
         return run_async().await();
+    }
+
+    void Cmd::check() const {
+        int exit_code = run();
+        if (exit_code != 0) panic("Command '" + render() + "' failed with exit status: " + std::to_string(exit_code));
     }
 
     void Cmd::clear() {
@@ -894,6 +917,18 @@ namespace bob {
 
     void CliCommand::set_default_command(CliCommandFunc f) {
         func = f;
+    }
+
+    CliCommand CliCommand::alias(const string &name, const string &description) {
+        CliCommand alias_cmd = *this;
+        alias_cmd.name = name;
+        if (description.empty()) {
+            alias_cmd.description = "Alias for command: " + this->name;
+        }
+        else {
+            alias_cmd.description = description;
+        }
+        return alias_cmd;
     }
 
     CliCommand& CliCommand::add_command(CliCommand command) {

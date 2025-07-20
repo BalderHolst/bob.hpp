@@ -120,7 +120,7 @@ void build_examples(path raylib) {
 }
 
 int main(int argc, char* argv[]) {
-    go_rebuild_yourself(argc, argv);
+    GO_REBUILD_YOURSELF(argc, argv);
 
     path raylib = build_raylib();
     build_examples(raylib);

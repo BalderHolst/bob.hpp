@@ -150,7 +150,7 @@ void build_all_vc_demos() {
 }
 
 int main(int argc, char* argv[]) {
-    go_rebuild_yourself(argc, argv);
+    GO_REBUILD_YOURSELF(argc, argv);
 
     build_tools();
     build_assets();

@@ -2,3 +2,5 @@ bob
 test
 build/
 .direnv
+docs/*
+!docs/Doxyfile
