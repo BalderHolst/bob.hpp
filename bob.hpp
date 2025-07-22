@@ -598,6 +598,7 @@ namespace bob {
         }
 
         CmdFuture future;
+        future.cpid = cpid;
 
         return future;
     }
