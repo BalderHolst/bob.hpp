@@ -99,6 +99,7 @@ namespace bob {
         pid_t cpid;
         bool done;
         int exit_status;
+        int stdout_fd;
         CmdFuture();
         int await();
         bool poll();
@@ -108,6 +109,8 @@ namespace bob {
     class Cmd {
         vector<string> parts;
     public:
+        bool capture_output = false; // If true, the command's output will be captured
+        string output;
         path root;
         Cmd() = default;
         Cmd (vector<string> &&parts, path root = ".");
@@ -116,9 +119,9 @@ namespace bob {
         Cmd& push_many(const vector<path> &parts);
         string render() const;
         CmdFuture run_async() const;
-        int run() const;
+        int run();
         //! Runs the command and checks that it exited with status 0.
-        void check() const;
+        void check();
         void clear();
     };
 
@@ -570,6 +573,12 @@ namespace bob {
 
         std::cout << "CMD: " << render() << std::endl;
 
+        int fd[2];
+        pipe(fd);
+
+        int output_fd = fd[1];
+        int input_fd  = fd[0];
+
         pid_t cpid = fork();
         if (cpid < 0) {
             PANIC("Could not fork process: " + string(strerror(errno)));
@@ -590,6 +599,14 @@ namespace bob {
                 }
             }
 
+            if (capture_output) {
+                // Close input side of the pipe for child process
+                close(input_fd);
+
+                // Redirect stdout to the pipe
+                dup2(output_fd, STDOUT_FILENO);
+            }
+
             if (execvp(args[0], args.data()) < 0) {
                 std::cerr << "Could not exec child process: " << strerror(errno) << std::endl;
                 exit(EXIT_FAILURE);
@@ -597,17 +614,36 @@ namespace bob {
             exit(EXIT_SUCCESS);
         }
 
+        // Close output side of the pipe for parent process
+        close(output_fd);
+
         CmdFuture future;
         future.cpid = cpid;
+        future.stdout_fd = input_fd;
 
         return future;
     }
 
-    int Cmd::run() const {
-        return run_async().await();
+    int Cmd::run() {
+        CmdFuture fut = run_async();
+        int exit_code = fut.await();
+
+        for (;;) {
+            char read_buf[1024];
+            int nbytes = read(fut.stdout_fd, read_buf, sizeof(read_buf) - 1);
+            if (nbytes < 0) {
+                if (errno == EINTR) continue; // Interrupted, try again
+                PANIC("Error reading from child process output: " + string(strerror(errno)));
+            }
+            if (nbytes == 0) break; // EOF reached
+            string chunk = string(read_buf, nbytes);
+            output += chunk;
+        }
+
+        return exit_code;
     }
 
-    void Cmd::check() const {
+    void Cmd::check() {
         int exit_code = run();
         if (exit_code != 0) PANIC("Command '" + render() + "' failed with exit status: " + std::to_string(exit_code));
     }
