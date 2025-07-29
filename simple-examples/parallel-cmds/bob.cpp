@@ -30,5 +30,10 @@ int main(int argc, char* argv[]) {
 
     runner.run();
 
+    cout << "Exit codes:\n";
+    for (auto & exit_code : runner.exit_codes) {
+        cout << "  " << exit_code << "\n";
+    }
+
     return EXIT_SUCCESS;
 }

@@ -39,7 +39,7 @@ namespace bob {
     //! This is used in the `_go_rebuild_yourself(int argc, char * argv[], path source_file_name)` function.
     int run_yourself(fs::path bin, int argc, char* argv[]);
 
-    bool file_needs_rebuild(path output, path input);
+    bool file_needs_rebuild(path input, path output);
 
     template<typename T, typename E>
     union ResultValue {
@@ -125,13 +125,24 @@ namespace bob {
         void clear();
     };
 
+    struct CmdRunnerSlot {
+        CmdFuture fut;
+        size_t index;
+
+        CmdRunnerSlot() : index(0) {}
+    };
+
     class CmdRunner {
-        std::queue<Cmd, std::deque<Cmd>> cmd_queue;
+        vector<Cmd> cmds;
+        size_t slot_cursor = 0;
         size_t process_count;
-        vector<CmdFuture> slots;
+        vector<CmdRunnerSlot> slots;
         bool populate_slots();
         void await_slots();
+        void set_exit_code(CmdRunnerSlot &slot);
+        bool any_waiting();
     public:
+        vector<int> exit_codes;
         CmdRunner(size_t process_count);
         CmdRunner(vector<Cmd> cmds);
         CmdRunner();
@@ -301,7 +312,7 @@ namespace bob {
         return run_cmd.run();
     }
 
-    bool file_needs_rebuild(path output, path input) {
+    bool file_needs_rebuild(path input, path output) {
 
         assert(!output.empty());
         assert(!input.empty());
@@ -655,64 +666,82 @@ namespace bob {
     bool CmdRunner::populate_slots() {
         bool did_work = false;
         for (size_t i = 0; i < process_count; ++i) {
-            bool fut_done = slots[i].poll();
+            auto &slot = slots[i];
+            bool fut_done = slot.fut.poll();
             if (!fut_done) continue;
 
-            if (cmd_queue.empty()) continue;
+            // Slot is done!
+
+            set_exit_code(slot);
+
+            if (!any_waiting()) continue;
 
             // Populate slot with a new command
-            auto cmd = cmd_queue.front();
-            cmd_queue.pop();
-            slots[i] = cmd.run_async();
+            size_t index = slot_cursor++;
+            Cmd cmd = cmds[index];
+
+            slot.fut = cmd.run_async();
+            slot.index = index;
+
             did_work = true;
         }
         return did_work;
     }
 
     void CmdRunner::await_slots() {
-        for (CmdFuture &slot : slots) {
-            slot.await();
+        for (auto &slot : slots) {
+            slot.fut.await();
+            set_exit_code(slot);
         }
+    }
+
+    void CmdRunner::set_exit_code(CmdRunnerSlot &slot) {
+        exit_codes[slot.index] = slot.fut.exit_status;
+    }
+
+    bool CmdRunner::any_waiting() {
+        return slot_cursor < cmds.size();
     }
 
     CmdRunner::CmdRunner(size_t process_count):
         process_count(process_count),
-        slots(vector<CmdFuture>(process_count))
+        slots(vector<CmdRunnerSlot>(process_count))
     {
-        for (CmdFuture &slot : slots) slot.done = true;
+        for (auto &slot : slots) slot.fut.done = true;
         assert(process_count > 0 && "Process count must be greater than 0");
     };
 
     CmdRunner::CmdRunner(vector<Cmd> cmds) :
         process_count(sysconf(_SC_NPROCESSORS_ONLN)),
-        slots(vector<CmdFuture>(process_count))
+        slots(vector<CmdRunnerSlot>(process_count))
     {
-        for (CmdFuture &slot : slots) slot.done = true;
+        for (auto &slot : slots) slot.fut.done = true;
         if (process_count == 0) process_count = 1; // Fallback
         push_many(cmds);
     }
 
     CmdRunner::CmdRunner():
         process_count(sysconf(_SC_NPROCESSORS_ONLN)),
-        slots(vector<CmdFuture>(process_count))
+        slots(vector<CmdRunnerSlot>(process_count))
     {
-        for (CmdFuture &slot : slots) slot.done = true;
+        for (auto &slot : slots) slot.fut.done = true;
         if (process_count == 0) process_count = 1; // Fallback
     }
 
     void CmdRunner::push(const Cmd &cmd) {
-        cmd_queue.push(cmd);
+        cmds.push_back(cmd);
     }
 
     void CmdRunner::push_many(const vector<Cmd> &cmds) {
         for (const auto &cmd : cmds) {
-            this->cmd_queue.push(cmd);
+            this->cmds.push_back(cmd);
         }
     }
 
     void CmdRunner::run() {
+        exit_codes.resize(cmds.size(), -1);
         populate_slots();
-        while (!cmd_queue.empty()) {
+        while (any_waiting()) {
             if (populate_slots()) continue;
             usleep(10000);
         }
@@ -725,7 +754,7 @@ namespace bob {
     bool Recipe::needs_rebuild() const {
         for (const auto &input : inputs) {
             for (const auto &output : outputs) {
-                if (file_needs_rebuild(output, input)) {
+                if (file_needs_rebuild(input, output)) {
                     return true;
                 }
             }
