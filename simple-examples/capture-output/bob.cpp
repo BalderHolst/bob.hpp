@@ -14,7 +14,9 @@ int main(int argc, char* argv[]) {
 
     cmd.run();
 
+    cout << term::BRIGHT_BLUE;
     cout << "\n======== SCRIPT OUTPUT ========" << endl;
-    cout << cmd.output;
+    cout << cmd.stdout_str;
     cout << "===============================" << endl;
+    cout << term::RESET;
 }

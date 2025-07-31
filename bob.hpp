@@ -6,12 +6,16 @@
 #include <iostream>
 #include <cassert>
 #include <unistd.h>
+#include <fcntl.h>
 #include <string>
 #include <vector>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <queue>
+#include <sys/select.h>
 #include <functional>
+#include <sys/ioctl.h>
+#include <stdio.h>
+#include <pty.h>
 
 namespace fs = std::filesystem;
 
@@ -94,11 +98,12 @@ namespace bob {
     void ensure_installed(vector<string> packages);
     Result<path, Unit> find_root(string marker_file);
     Result<path, string> git_root();
+    bool read_fd(int fd);
 
     struct CmdFuture {
         pid_t cpid;
         bool done;
-        int exit_status;
+        int exit_code;
         int stdout_fd;
         CmdFuture();
         int await();
@@ -110,7 +115,9 @@ namespace bob {
         vector<string> parts;
     public:
         bool capture_output = false; // If true, the command's output will be captured
-        string output;
+        bool silent = false;
+        string stdout_str;
+        string error_output;
         path root;
         Cmd() = default;
         Cmd (vector<string> &&parts, path root = ".");
@@ -123,9 +130,11 @@ namespace bob {
         //! Runs the command and checks that it exited with status 0.
         void check();
         void clear();
+        bool poll_future(CmdFuture &fut);
     };
 
     struct CmdRunnerSlot {
+        Cmd * cmd;
         CmdFuture fut;
         size_t index;
 
@@ -133,7 +142,6 @@ namespace bob {
     };
 
     class CmdRunner {
-        vector<Cmd> cmds;
         size_t slot_cursor = 0;
         size_t process_count;
         vector<CmdRunnerSlot> slots;
@@ -142,13 +150,18 @@ namespace bob {
         void set_exit_code(CmdRunnerSlot &slot);
         bool any_waiting();
     public:
+        vector<Cmd> cmds;
         vector<int> exit_codes;
         CmdRunner(size_t process_count);
         CmdRunner(vector<Cmd> cmds);
         CmdRunner();
+        size_t size();
         void push(const Cmd &cmd);
         void push_many(const vector<Cmd> &cmds);
-        void run();
+        void clear();
+        bool run();
+        bool any_failed();
+        void capture_output(bool capture = true);
     };
 
     typedef std::vector<fs::path> Paths;
@@ -292,8 +305,10 @@ namespace bob {
         const std::string BLINK       = "\033[5m";
         const std::string INVERT      = "\033[7m";
         const std::string HIDDEN      = "\033[8m";
-    }
 
+        struct TermSize { size_t w, h; };
+        TermSize size();
+    }
 }
 
 #endif // BOB_H_
@@ -513,21 +528,33 @@ namespace bob {
         return value.error;
     }
 
-    CmdFuture::CmdFuture() : cpid(-1), done(false), exit_status(-1) {}
+    bool read_fd(int fd, string * target) {
+        bool got_data = false;
+        for (;;) {
+            char buf[1024];
+            int n = read(fd, buf, sizeof(buf) - 1);
+            if (n <= 0) return got_data;
+            got_data = true;
+            target->append(buf, n);
+        }
+        return got_data;
+    }
+
+
+    CmdFuture::CmdFuture() : cpid(-1), done(false), exit_code(-1) {}
 
     int CmdFuture::await() {
         int status;
         if (!done) {
             waitpid(cpid, &status, 0);
             if (WIFEXITED(status)) {
-                exit_status = WEXITSTATUS(status);
+                exit_code = WEXITSTATUS(status);
             } else {
                 PANIC("Child process did not terminate normally.");
             }
         }
-
         done = true;
-        return exit_status;
+        return exit_code;
     }
 
     bool CmdFuture::poll() {
@@ -540,7 +567,7 @@ namespace bob {
         if (result == 0) return false;
 
         done = true;
-        if (WIFEXITED(status)) exit_status = WEXITSTATUS(status);
+        if (WIFEXITED(status)) exit_code = WEXITSTATUS(status);
         else PANIC("Child process did not terminate normally.");
         return true;
     }
@@ -574,6 +601,9 @@ namespace bob {
             if (!result.empty()) result += " ";
             result += part;
         }
+        if (root != ".") {
+            result = "[from '" + root.string() + "'] " + result;
+        }
         return result;
     }
 
@@ -584,19 +614,17 @@ namespace bob {
 
         std::cout << "CMD: " << render() << std::endl;
 
-        int fd[2];
-        pipe(fd);
-
-        int output_fd = fd[1];
-        int input_fd  = fd[0];
-
-        pid_t cpid = fork();
+        // Pseudo-terminal for line-buffered output
+        int stdout_fd;
+        pid_t cpid = forkpty(&stdout_fd, nullptr, nullptr, nullptr);
         if (cpid < 0) {
-            PANIC("Could not fork process: " + string(strerror(errno)));
+            PANIC("Could not forkpty: " + std::string(strerror(errno)));
         }
 
         if (cpid == 0) {
-            vector<char *> args;
+            // --- Child process ---
+
+            std::vector<char *> args;
             for (auto &part : parts) {
                 args.push_back(const_cast<char *>(part.c_str()));
             }
@@ -610,13 +638,8 @@ namespace bob {
                 }
             }
 
-            if (capture_output) {
-                // Close input side of the pipe for child process
-                close(input_fd);
-
-                // Redirect stdout to the pipe
-                dup2(output_fd, STDOUT_FILENO);
-            }
+            // Note: With forkpty, stdout/stderr are already connected to the PTY.
+            // No need for manual dup2 redirection.
 
             if (execvp(args[0], args.data()) < 0) {
                 std::cerr << "Could not exec child process: " << strerror(errno) << std::endl;
@@ -625,31 +648,27 @@ namespace bob {
             exit(EXIT_SUCCESS);
         }
 
-        // Close output side of the pipe for parent process
-        close(output_fd);
+        // --- Parent process ---
+
+        // Set master PTY file descriptor to non-blocking mode
+        fcntl(stdout_fd, F_SETFL, O_NONBLOCK);
 
         CmdFuture future;
         future.cpid = cpid;
-        future.stdout_fd = input_fd;
+        future.stdout_fd = stdout_fd;
 
         return future;
     }
 
     int Cmd::run() {
         CmdFuture fut = run_async();
-        int exit_code = fut.await();
 
-        for (;;) {
-            char read_buf[1024];
-            int nbytes = read(fut.stdout_fd, read_buf, sizeof(read_buf) - 1);
-            if (nbytes < 0) {
-                if (errno == EINTR) continue; // Interrupted, try again
-                PANIC("Error reading from child process output: " + string(strerror(errno)));
-            }
-            if (nbytes == 0) break; // EOF reached
-            string chunk = string(read_buf, nbytes);
-            output += chunk;
+        bool done = false;
+        while (!done) {
+            done = poll_future(fut);
         }
+
+        int exit_code = fut.exit_code;
 
         return exit_code;
     }
@@ -663,11 +682,23 @@ namespace bob {
         parts.clear();
     }
 
+    bool Cmd::poll_future(CmdFuture &fut) {
+        bool done = fut.poll();
+        size_t start = stdout_str.size();
+        bool got_data = read_fd(fut.stdout_fd, &stdout_str);
+
+        if (got_data && !silent) {
+            std::cout << stdout_str.substr(start);
+        }
+
+        return done;
+    }
+
     bool CmdRunner::populate_slots() {
         bool did_work = false;
         for (size_t i = 0; i < process_count; ++i) {
             auto &slot = slots[i];
-            bool fut_done = slot.fut.poll();
+            bool fut_done = slot.cmd->poll_future(slot.fut);
             if (!fut_done) continue;
 
             // Slot is done!
@@ -682,6 +713,7 @@ namespace bob {
 
             slot.fut = cmd.run_async();
             slot.index = index;
+            slot.cmd = &cmd;
 
             did_work = true;
         }
@@ -696,7 +728,7 @@ namespace bob {
     }
 
     void CmdRunner::set_exit_code(CmdRunnerSlot &slot) {
-        exit_codes[slot.index] = slot.fut.exit_status;
+        exit_codes[slot.index] = slot.fut.exit_code;
     }
 
     bool CmdRunner::any_waiting() {
@@ -707,7 +739,10 @@ namespace bob {
         process_count(process_count),
         slots(vector<CmdRunnerSlot>(process_count))
     {
-        for (auto &slot : slots) slot.fut.done = true;
+        for (auto &slot : slots) {
+            slot.fut.done = true;
+            slot.fut.stdout_fd = -1;
+        }
         assert(process_count > 0 && "Process count must be greater than 0");
     };
 
@@ -715,7 +750,10 @@ namespace bob {
         process_count(sysconf(_SC_NPROCESSORS_ONLN)),
         slots(vector<CmdRunnerSlot>(process_count))
     {
-        for (auto &slot : slots) slot.fut.done = true;
+        for (auto &slot : slots) {
+            slot.fut.done = true;
+            slot.fut.stdout_fd = -1;
+        }
         if (process_count == 0) process_count = 1; // Fallback
         push_many(cmds);
     }
@@ -728,6 +766,10 @@ namespace bob {
         if (process_count == 0) process_count = 1; // Fallback
     }
 
+    size_t CmdRunner::size() {
+        return cmds.size();
+    }
+
     void CmdRunner::push(const Cmd &cmd) {
         cmds.push_back(cmd);
     }
@@ -738,14 +780,34 @@ namespace bob {
         }
     }
 
-    void CmdRunner::run() {
+    void CmdRunner::clear() {
+        cmds.clear();
+        exit_codes.clear();
+    }
+
+    bool CmdRunner::run() {
         exit_codes.resize(cmds.size(), -1);
+        slot_cursor = 0;
         populate_slots();
         while (any_waiting()) {
             if (populate_slots()) continue;
             usleep(10000);
         }
         await_slots();
+        return !any_failed();
+    }
+
+    bool CmdRunner::any_failed() {
+        for (auto &exit_code : exit_codes) {
+            if (exit_code != 0) return true;
+        }
+        return false;
+    }
+
+    void CmdRunner::capture_output(bool capture) {
+        for (auto &cmd : cmds) {
+            cmd.capture_output = capture;
+        }
     }
 
     Recipe::Recipe(const Paths &outputs, const Paths &inputs, RecipeFunc func)
@@ -1139,6 +1201,14 @@ namespace bob {
 
     int Cli::serve() {
         return run(raw_args.size(), raw_args.data());
+    }
+
+    namespace term {
+        TermSize size() {
+            struct winsize w;
+            ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+            return {w.ws_col, w.ws_row};
+        }
     }
 }
 

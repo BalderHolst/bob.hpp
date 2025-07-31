@@ -1,3 +1,4 @@
+#include <cstdlib>
 #define BOB_IMPLEMENTATION
 #include "bob.hpp"
 
@@ -25,6 +26,20 @@ vector<path> find_test_cases() {
     return cases;
 }
 
+void label(size_t width, const string &text, const string &color = "", char fill = '=', size_t left_padding = 8) {
+    size_t right_padding = (width - text.length()) - 2 - left_padding;
+    cout << color;
+    cout << setw(left_padding) << setfill(fill) << "";
+    cout << " " << text << " ";
+    cout << setw(right_padding) << setfill(fill) << "";
+    cout << term::RESET;
+    cout << endl;
+}
+
+void line(size_t width, const string color = "", char fill = '=') {
+    cout << color << setw(width) << setfill(fill) << "" << term::RESET << endl;
+}
+
 int test(CliCommand &cmd, Action action, path test_case = "") {
     cmd.handle_help();
 
@@ -41,22 +56,23 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
     }
 
     // Compile all test binaries
-    CmdRunner compile_runner;
+    CmdRunner runner;
     for (const path &test_case : test_cases) {
-        compile_runner.push(Cmd({"g++", test_case / "bob.cpp", "-o", test_case / "bob"}));
+        runner.push(Cmd({"g++", test_case / "bob.cpp", "-o", test_case / "bob"}));
     }
-    compile_runner.run();
+    runner.run();
 
     // Run the tests
-    CmdRunner test_runner;
+    runner.clear();
     for (const auto &test_case : test_cases) {
         path rere_path = fs::relative(git_root().unwrap() / "rere.py", test_case);
-        test_runner.push(Cmd({
+        runner.push(Cmd({
                     rere_path,
                     (action == Action::Record) ? "record" : "replay",
                     "test.list"}, test_case));
     }
-    test_runner.run();
+    runner.capture_output(true);
+    runner.run();
 
     // Remove executables
     for (const auto &test_case : test_cases) {
@@ -66,7 +82,41 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
         }
     }
 
-    return EXIT_SUCCESS;
+    if (!runner.any_failed()) {
+        return EXIT_SUCCESS;
+    }
+
+    // Something went wrong...
+
+    // Collect failed commands
+    vector<Cmd *> failed_cmds;
+    for (int i = 0; i < runner.size(); i++) {
+        auto &cmd       = runner.cmds[i];
+        auto &exit_code = runner.exit_codes[i];
+        if (exit_code != 0) {
+            failed_cmds.push_back(&cmd);
+        }
+    }
+
+    size_t w = term::size().w;
+
+    cout << endl;
+    for (auto cmd : failed_cmds) {
+        label(w, cmd->render(), term::RED);
+        cout << cmd->stdout_str << endl;
+    }
+    line(w, term::RED);
+
+    // TODO: ?/? tests passed
+    cout << term::RED << "\nSome tests failed:" << endl;
+
+    for (auto cmd : failed_cmds) {
+        cout << "    " << cmd->render() << endl;
+    }
+
+    cout << term::RESET;
+
+    return EXIT_FAILURE;
 }
 
 void add_test_commands(Cli &cli) {

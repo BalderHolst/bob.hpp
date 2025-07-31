@@ -21,7 +21,8 @@ int main(int argc, char* argv[]) {
         string script = "import time;"
                         "print('Job " + to_string(i) + " started...'); "
                         "time.sleep(" + to_string((float) i / 20.0) + "); "
-                        "print('Job + " + to_string(i) + " finished!')";
+                        "print('Job + " + to_string(i) + " finished!');"
+                        "exit(" + to_string(i) + ");";
 
         auto cmd = Cmd({"python3", "-c", script});
 
@@ -30,7 +31,7 @@ int main(int argc, char* argv[]) {
 
     runner.run();
 
-    cout << "Exit codes:\n";
+    cout << "\nExit codes:\n";
     for (auto & exit_code : runner.exit_codes) {
         cout << "  " << exit_code << "\n";
     }
