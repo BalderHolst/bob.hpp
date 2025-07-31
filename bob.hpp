@@ -131,14 +131,13 @@ namespace bob {
         void check();
         void clear();
         bool poll_future(CmdFuture &fut);
+        int await_future(CmdFuture &fut);
     };
 
     struct CmdRunnerSlot {
-        Cmd * cmd;
         CmdFuture fut;
-        size_t index;
-
-        CmdRunnerSlot() : index(0) {}
+        int index;
+        CmdRunnerSlot() : index{-1} {}
     };
 
     class CmdRunner {
@@ -156,8 +155,8 @@ namespace bob {
         CmdRunner(vector<Cmd> cmds);
         CmdRunner();
         size_t size();
-        void push(const Cmd &cmd);
-        void push_many(const vector<Cmd> &cmds);
+        void push(Cmd cmd);
+        void push_many(vector<Cmd> cmds);
         void clear();
         bool run();
         bool any_failed();
@@ -662,15 +661,7 @@ namespace bob {
 
     int Cmd::run() {
         CmdFuture fut = run_async();
-
-        bool done = false;
-        while (!done) {
-            done = poll_future(fut);
-        }
-
-        int exit_code = fut.exit_code;
-
-        return exit_code;
+        return await_future(fut);
     }
 
     void Cmd::check() {
@@ -694,14 +685,25 @@ namespace bob {
         return done;
     }
 
+    int Cmd::await_future(CmdFuture &fut) {
+        bool done = false;
+        while (!done) {
+            done = poll_future(fut);
+        }
+        return fut.exit_code;
+    }
+
     bool CmdRunner::populate_slots() {
         bool did_work = false;
         for (size_t i = 0; i < process_count; ++i) {
             auto &slot = slots[i];
-            bool fut_done = slot.cmd->poll_future(slot.fut);
-            if (!fut_done) continue;
 
-            // Slot is done!
+            if (slot.index >= 0) {
+                bool fut_done = cmds[slot.index].poll_future(slot.fut);
+                if (!fut_done) continue;
+            }
+
+            // Slot is ready!
 
             set_exit_code(slot);
 
@@ -713,7 +715,6 @@ namespace bob {
 
             slot.fut = cmd.run_async();
             slot.index = index;
-            slot.cmd = &cmd;
 
             did_work = true;
         }
@@ -721,13 +722,22 @@ namespace bob {
     }
 
     void CmdRunner::await_slots() {
-        for (auto &slot : slots) {
-            slot.fut.await();
-            set_exit_code(slot);
+        bool all_done = false;
+        while (!all_done) {
+            all_done = true;
+            for (auto &slot : slots) {
+                if (slot.index < 0) continue;
+                bool done = cmds[slot.index].poll_future(slot.fut);
+                if (done) {
+                    set_exit_code(slot);
+                }
+                all_done &= done;
+            }
         }
     }
 
     void CmdRunner::set_exit_code(CmdRunnerSlot &slot) {
+        if (slot.index < 0) return;
         exit_codes[slot.index] = slot.fut.exit_code;
     }
 
@@ -770,13 +780,14 @@ namespace bob {
         return cmds.size();
     }
 
-    void CmdRunner::push(const Cmd &cmd) {
+    void CmdRunner::push(Cmd cmd) {
+        cmd.silent = true;
         cmds.push_back(cmd);
     }
 
-    void CmdRunner::push_many(const vector<Cmd> &cmds) {
+    void CmdRunner::push_many(vector<Cmd> cmds) {
         for (const auto &cmd : cmds) {
-            this->cmds.push_back(cmd);
+            push(cmd);
         }
     }
 
