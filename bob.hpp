@@ -88,6 +88,7 @@ namespace bob {
     };
 
     #define PANIC(msg) bob::_panic(__FILE__, __LINE__, msg)
+    #define WARNING(msg) std::cerr << term::YELLOW << "[WARNING] " << __FILE__ << ":" << __LINE__ << ": " << msg << term::RESET << std::endl
 
     [[noreturn]] void _panic(path file, int line, string msg);
     void log(string msg);
@@ -355,6 +356,15 @@ namespace bob {
         path binary_path = fs::relative(argv[0], root);
         path source_path = fs::relative(source_file_name, root);
         path header_path = __FILE__;
+
+        if (source_path.has_parent_path()) {
+            WARNING("Source file is not next to executable. This may cause issues.");
+        }
+
+        if (source_path.empty() || header_path.empty() || binary_path.empty()) {
+            PANIC("Failed to determine paths for source, header, or binary.\n\n"
+                  "The bob executable must be compiled and run from the same directory as the source file.");
+        }
 
         bool rebuild_needed = false;
 

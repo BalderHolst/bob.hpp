@@ -46,8 +46,7 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
     vector<path> test_cases;
     if (!test_case.empty()) {
         test_cases.push_back(test_case);
-    }
-    else {
+    } else {
         test_cases = find_test_cases();
         if (test_cases.empty()) {
             cerr << "No test cases found in " << TEST_DIR << endl;
@@ -58,7 +57,7 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
     // Compile all test binaries
     CmdRunner runner;
     for (const path &test_case : test_cases) {
-        runner.push(Cmd({"g++", test_case / "bob.cpp", "-o", test_case / "bob"}));
+        runner.push(Cmd({"g++", "bob.cpp", "-o", "bob"}, test_case));
     }
     runner.run();
 
@@ -73,14 +72,6 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
     }
     runner.capture_output(true);
     runner.run();
-
-    // Remove executables
-    for (const auto &test_case : test_cases) {
-        path exe_path = test_case / "bob";
-        if (fs::exists(exe_path)) {
-            fs::remove(exe_path);
-        }
-    }
 
     if (!runner.any_failed()) {
         return EXIT_SUCCESS;
@@ -108,7 +99,7 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
     line(w, term::RED);
 
     // TODO: ?/? tests passed
-    cout << term::RED << "\nSome tests failed:" << endl;
+    cout << term::RED << "\nSome commands failed:" << endl;
 
     for (auto cmd : failed_cmds) {
         cout << "    " << cmd->render() << endl;
