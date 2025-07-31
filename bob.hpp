@@ -1152,6 +1152,7 @@ namespace bob {
     }
 
     CliCommand& CliCommand::add_command(CliCommand command) {
+        // TODO: This may reallocate, thus invalidating previously returned references
         commands.push_back(command);
         return commands[commands.size() - 1];
     }

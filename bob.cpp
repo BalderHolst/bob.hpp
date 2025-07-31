@@ -115,6 +115,14 @@ void add_test_commands(Cli &cli) {
         return test(cmd, Action::Record);
     });
 
+    // Add a sub command for every test case
+    for (const auto &test_case : find_test_cases()) {
+        string test_name = test_case.filename().string();
+            record.add_command(test_name, "Record test case: " + test_name, [test_case](CliCommand &cmd) {
+            return test(cmd, Action::Record, test_case);
+        });
+    }
+
     CliCommand &replay = cli.add_command("replay", "Replay tests", [](CliCommand &cmd) {
         return test(cmd, Action::Replay);
     });
@@ -122,10 +130,7 @@ void add_test_commands(Cli &cli) {
     // Add a sub command for every test case
     for (const auto &test_case : find_test_cases()) {
         string test_name = test_case.filename().string();
-        record.add_command(test_name, "Record test case: " + test_name, [test_case](CliCommand &cmd) {
-            return test(cmd, Action::Record, test_case);
-        });
-        replay.add_command(test_name, "Replay test case: " + test_name, [test_case](CliCommand &cmd) {
+            replay.add_command(test_name, "Replay test case: " + test_name, [test_case](CliCommand &cmd) {
             return test(cmd, Action::Replay, test_case);
         });
     }
