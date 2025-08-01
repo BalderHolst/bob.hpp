@@ -105,6 +105,8 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
     }
 
     size_t w = term::size().w;
+    if (w < 80) w = 80; // Ensure a minimum width for the output
+    if (w > 1000) w = 100; // If the terminal is VERY wide, limit it to 100 characters (fix for CI)
 
     cout << endl;
     for (auto cmd : failed_cmds) {

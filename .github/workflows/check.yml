@@ -1,0 +1,17 @@
+name: Check
+on:
+  push:
+    branches: ["**"]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup C++
+        uses: aminya/setup-cpp@v1
+      - name: Compile Bob
+        run: g++ bob.cpp -o bob
+      - name: Run tests
+        run: ./bob test

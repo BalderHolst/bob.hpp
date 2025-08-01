@@ -135,7 +135,10 @@ namespace bob {
     class Cmd {
         vector<string> parts;
     public:
-        bool capture_output = false; // If true, the command's output will be captured
+        //! If true, the command's output will be captured
+        bool capture_output = false;
+
+        //! If true, the command will not print its output to stdout.
         bool silent = false;
         string stdout_str;
         string error_output;
