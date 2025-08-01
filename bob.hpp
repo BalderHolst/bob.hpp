@@ -16,6 +16,7 @@
 #include <sys/ioctl.h>
 #include <stdio.h>
 #include <pty.h>
+#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -27,10 +28,9 @@ namespace bob {
 
     struct Unit {};
 
-    //! \def GO_REBUILD_YOURSELF(argc, argv)
-    //! Macro to rebuild the current executable from its source code if needed. The new executable
-    //! will be run with the same arguments as the current one. This function is best used at the
-    //! beginning of the `main` function.
+    //! Macro to rebuild and rerun the current executable from its source code if needed.
+    //! The new executable  will be run with the same arguments as the current one.
+    //! This function is best used at the beginning of the `main` function.
     #define GO_REBUILD_YOURSELF(argc, argv) bob::_go_rebuild_yourself(argc, argv, __FILE__)
 
     //! Rebuilds the current executable from its source file. After building the new executable,
@@ -43,6 +43,7 @@ namespace bob {
     //! This is used in the `_go_rebuild_yourself(int argc, char * argv[], path source_file_name)` function.
     int run_yourself(fs::path bin, int argc, char* argv[]);
 
+    //! Checks if the output file needs to be rebuilt based on the modification times of the input and output files.
     bool file_needs_rebuild(path input, path output);
 
     template<typename T, typename E>
@@ -88,17 +89,34 @@ namespace bob {
     };
 
     #define PANIC(msg) bob::_panic(__FILE__, __LINE__, msg)
-    #define WARNING(msg) std::cerr << term::YELLOW << "[WARNING] " << __FILE__ << ":" << __LINE__ << ": " << msg << term::RESET << std::endl
+    #define WARNING(msg) bob::_warning(__FILE__, __LINE__, msg)
 
     [[noreturn]] void _panic(path file, int line, string msg);
-    void log(string msg);
+    void _warning(path file, int line, string msg);
+
+    //! Create a directory and its parents if it does not exist.
     path mkdirs(path dir);
+
+    //! Returns a string that can be used as an include path for the given directory.
+    //! E.g. `I("/usr/include")` will return `"-I/usr/include"`.
     string I(path p);
+
+    //! Searches for a binary in the system PATH.
     path search_path(const string &bin_name);
+
+    //! Prints a checklist of items with their statuses.
     void checklist(const vector<string> &items, const vector<bool> &statuses);
+
+    //! Ensures that the given packages are installed in the system PATH.
+    //! If any package is not found, it will print a checklist and exit the program.
     void ensure_installed(vector<string> packages);
+
+    //! Finds the root directory of the project by looking for a marker file.
     Result<path, Unit> find_root(string marker_file);
+
+    //! Finds the root directory of the git repository.
     Result<path, string> git_root();
+
     bool read_fd(int fd);
 
     struct CmdFuture {
@@ -110,6 +128,7 @@ namespace bob {
         CmdFuture();
         int await(string * output = nullptr);
         bool poll(string * output = nullptr);
+        bool kill();
     };
 
     //! Represents a command to be executed in the operating system shell.
@@ -126,13 +145,29 @@ namespace bob {
         Cmd& push(const string &part);
         Cmd& push_many(const vector<string> &parts);
         Cmd& push_many(const vector<path> &parts);
+
+        //! Returns the command as a printable string.
         string render() const;
+
+        //! Runs the command asynchronously and returns a `CmdFuture` object.
+        //!
+        //! This future can be awaited and polled until the command completes.
         CmdFuture run_async() const;
+
+        //! Runs the command and returns the exit status.
         int run();
+
         //! Runs the command and checks that it exited with status 0.
         void check();
+
+        //! Clears the command's parts to be reused for another command.
         void clear();
+
+        //! Polls the command's future to check if it has completed
+        //! and captures its output if available.
         bool poll_future(CmdFuture &fut);
+
+        //! Awaits the command's future to complete and captures its output.
         int await_future(CmdFuture &fut);
     };
 
@@ -255,7 +290,9 @@ namespace bob {
         int serve();
     };
 
+    //! Terminal related constants and functions.
     namespace term {
+
         // Reset Style
         const std::string RESET       = "\033[0m";
 
@@ -404,7 +441,7 @@ namespace bob {
     // Create the directory if it does not exist. Returns the absolute path of the directory.
     path mkdirs(path dir) {
         if (!fs::exists(dir)) {
-            log("Creating directory: " + dir.string());
+            std::cout << "Creating directory: " + dir.string() << std::endl;
             if (!fs::create_directories(dir)) {
                 std::cerr << "Failed to create directory: " << dir << std::endl;
                 exit(EXIT_FAILURE);
@@ -413,8 +450,8 @@ namespace bob {
         return fs::absolute(dir);
     }
 
-    void log(string msg) {
-        std::cout << msg << std::endl;
+    void _warning(path file, int line, string msg) {
+        std::cerr << term::YELLOW << "[WARNING] " << file.string() << ":" << line << ": " << msg << term::RESET << std::endl;
     }
 
     [[noreturn]]
@@ -556,9 +593,8 @@ namespace bob {
     int CmdFuture::await(string * output) {
         while (!done) {
             done = poll(output);
-            usleep(10 /* ms */ * 1000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
-
         return exit_code;
     }
 
@@ -588,6 +624,19 @@ namespace bob {
         return true;
     }
 
+    bool CmdFuture::kill() {
+        if (cpid < 0) return false;
+        if (::kill(cpid, SIGKILL) < 0) {
+            std::cerr << "Failed to kill child process: " << strerror(errno) << std::endl;
+            return false;
+        }
+        // Reset the state
+        cpid = -1;
+        done = true;
+        exit_code = -1;
+
+        return true;
+    }
 
     Cmd::Cmd(vector<string> &&parts, path root) : parts(std::move(parts)), root(root) {}
 
@@ -745,6 +794,7 @@ namespace bob {
                 }
                 all_done &= done;
             }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
     }
 
@@ -814,7 +864,7 @@ namespace bob {
         populate_slots();
         while (any_waiting()) {
             if (populate_slots()) continue;
-            usleep(10000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
         await_slots();
         return !any_failed();

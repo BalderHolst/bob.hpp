@@ -4,7 +4,7 @@
 
 #include <filesystem>
 #include <iostream>
-#include <sys/inotify.h>
+#include <thread>
 
 using namespace bob;
 using namespace std;
@@ -155,38 +155,11 @@ void add_test_commands(Cli &cli) {
 
 }
 
-void document(CliCommand &cmd) {
+int document(CliCommand &cmd) {
     cmd.handle_help();
     ensure_installed({"doxygen"});
     path root = git_root().unwrap();
-    Cmd({"doxygen", "docs/Doxyfile"}, root).check();
-}
-
-void watch_changes(const vector<path> &paths, CliCommand &cmd) {
-    int fd = inotify_init();
-    if (fd < 0) {
-        PANIC("Failed to initialize inotify");
-    }
-
-    vector<int> wds;
-    for (const auto &p : paths) {
-        int wd = inotify_add_watch(fd, p.c_str(), IN_MODIFY | IN_CREATE | IN_DELETE);
-        if (wd < 0) {
-            PANIC("Failed to add inotify watch for " + p.string());
-        }
-        wds.push_back(wd);
-    }
-
-    cout << "Watching for changes..." << endl;
-
-    while (true) {
-        char buffer[1024];
-        int length = read(fd, buffer, sizeof(buffer));
-        if (length < 0) {
-            PANIC("Failed to read from inotify");
-        }
-        document(cmd); // Rebuild documentation on change
-    }
+    return Cmd({"doxygen", "docs/Doxyfile"}, root).run();
 }
 
 int serve(CliCommand &cmd) {
@@ -194,7 +167,9 @@ int serve(CliCommand &cmd) {
 
     cout << endl;
 
-    path site = git_root().unwrap() / "docs" / "html";
+    path repo = git_root().unwrap();
+
+    path site = repo / "docs" / "html";
     int port = DEFAULT_SERVER_PORT;
 
     auto port_arg = cmd.find_long("port");
@@ -211,24 +186,62 @@ int serve(CliCommand &cmd) {
     auto server_fut = Cmd({"python3", "-m", "http.server", to_string(port), "-d", site}).run_async();
 
     if (watch_arg && watch_arg->set) {
+        vector<path> watch_paths = {repo / "bob.hpp", repo / "docs" / "Doxyfile"};
+        vector<struct stat> stats = {};
 
+        // Initialize stats for each path
+        cout << "Watching for changes in: " << endl;
+        path cwd = fs::current_path();
+        for (const auto &p : watch_paths) {
+            cout << "    ./" << fs::relative(p, cwd).string() << endl;
+            struct stat s;
+            if (stat(p.c_str(), &s) != 0) {
+                PANIC("Could not stat file '" + p.string() + "': " + strerror(errno));
+            }
+            stats.push_back(s);
+        }
+
+        assert(watch_paths.size() == stats.size());
+        struct stat new_stat;
+
+        // Event loop to watch for changes
+        for (bool done = false; !done;) {
+            bool change_detected = false;
+
+            for (int i = 0; i < watch_paths.size(); i++) {
+                path &p = watch_paths[i];
+                struct stat &s = stats[i];
+                if (stat(p.c_str(), &new_stat) != 0) {
+                    PANIC("Could not stat file '" + p.string() + "': " + strerror(errno));
+                }
+                if (new_stat.st_mtime == s.st_mtime) continue; // No change
+
+                cout << "Change detected in " << p.string() << ", rebuilding documentation..." << endl;
+                change_detected = true;
+                s = new_stat;
+            }
+
+            if (change_detected) {
+                document(cmd);
+            }
+
+            server_fut.poll();
+
+            std::this_thread::sleep_for(chrono::milliseconds(20));
+        }
     }
 
     return server_fut.await();
 }
 
 void add_doc_commands(Cli &cli) {
-    auto &doc_cmd = cli.add_command("doc", "Generate documentation", [](CliCommand &cmd) {
-        document(cmd);
-        return EXIT_SUCCESS;
-    });
+    auto &doc_cmd = cli.add_command("doc", "Generate documentation", document);
 
     doc_cmd.add_command("serve", "Serve the documentation via a local web server", serve)
         .add_arg('p', "port",  CliFlagType::Value,
                 "Port to serve the documentation on (default: " + to_string(DEFAULT_SERVER_PORT) + ")")
         .add_arg('w', "watch", CliFlagType::Bool,
                 "Watch for changes and rebuild the documentation automatically");
-
 }
 
 
