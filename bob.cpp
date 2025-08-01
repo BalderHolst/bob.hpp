@@ -43,6 +43,8 @@ void line(size_t width, const string color = "", char fill = '=') {
 int test(CliCommand &cmd, Action action, path test_case = "") {
     cmd.handle_help();
 
+    ensure_installed({"g++", "python3"});
+
     vector<path> test_cases;
     if (!test_case.empty()) {
         test_cases.push_back(test_case);
@@ -54,18 +56,28 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
         }
     }
 
-    // Compile all test binaries
     CmdRunner runner;
+
+    cout << "\nCleaning test directories..." << endl;
+    runner.clear();
+    for (const path &test_case : test_cases) {
+        runner.push(Cmd({"git", "clean", "-xdf", test_case}));
+    }
+    runner.run();
+
+    cout << "\nCompiling test cases..." << endl;
+    runner.clear();
     for (const path &test_case : test_cases) {
         runner.push(Cmd({"g++", "bob.cpp", "-o", "bob"}, test_case));
     }
     runner.run();
 
-    // Run the tests
+    cout << "\nRunning tests..." << endl;
     runner.clear();
     for (const auto &test_case : test_cases) {
         path rere_path = fs::relative(git_root().unwrap() / "rere.py", test_case);
         runner.push(Cmd({
+                    "python3",
                     rere_path,
                     (action == Action::Record) ? "record" : "replay",
                     "test.list"}, test_case));
