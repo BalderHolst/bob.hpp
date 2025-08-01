@@ -106,9 +106,10 @@ namespace bob {
         bool done;
         int exit_code;
         int stdout_fd;
+        bool silent = false;
         CmdFuture();
-        int await();
-        bool poll();
+        int await(string * output = nullptr);
+        bool poll(string * output = nullptr);
     };
 
     //! Represents a command to be executed in the operating system shell.
@@ -552,22 +553,28 @@ namespace bob {
 
     CmdFuture::CmdFuture() : cpid(-1), done(false), exit_code(-1) {}
 
-    int CmdFuture::await() {
-        int status;
-        if (!done) {
-            waitpid(cpid, &status, 0);
-            if (WIFEXITED(status)) {
-                exit_code = WEXITSTATUS(status);
-            } else {
-                PANIC("Child process did not terminate normally.");
-            }
+    int CmdFuture::await(string * output) {
+        while (!done) {
+            done = poll(output);
+            usleep(10 /* ms */ * 1000);
         }
-        done = true;
+
         return exit_code;
     }
 
-    bool CmdFuture::poll() {
+    bool CmdFuture::poll(string * output) {
         if (done) return true;
+
+        string new_output = "";
+        bool got_data = read_fd(stdout_fd, &new_output);
+        if (got_data && !silent) {
+            std::cout << new_output;
+        }
+
+        if (output && got_data) {
+            *output += new_output;
+        }
+
         int status;
         pid_t result = waitpid(cpid, &status, WNOHANG);
 
@@ -665,6 +672,8 @@ namespace bob {
         CmdFuture future;
         future.cpid = cpid;
         future.stdout_fd = stdout_fd;
+        future.done = false;
+        future.silent = silent;
 
         return future;
     }
@@ -684,14 +693,7 @@ namespace bob {
     }
 
     bool Cmd::poll_future(CmdFuture &fut) {
-        bool done = fut.poll();
-        size_t start = stdout_str.size();
-        bool got_data = read_fd(fut.stdout_fd, &stdout_str);
-
-        if (got_data && !silent) {
-            std::cout << stdout_str.substr(start);
-        }
-
+        bool done = fut.poll(&stdout_str);
         return done;
     }
 

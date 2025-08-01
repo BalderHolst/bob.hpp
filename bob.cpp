@@ -4,9 +4,12 @@
 
 #include <filesystem>
 #include <iostream>
+#include <sys/inotify.h>
 
 using namespace bob;
 using namespace std;
+
+const int DEFAULT_SERVER_PORT = 8000;
 
 const path TEST_DIR = path(__FILE__).parent_path().parent_path() / "simple-examples";
 
@@ -43,7 +46,7 @@ void line(size_t width, const string color = "", char fill = '=') {
 int test(CliCommand &cmd, Action action, path test_case = "") {
     cmd.handle_help();
 
-    ensure_installed({"g++", "python3"});
+    ensure_installed({"git", "g++", "python3"});
 
     vector<path> test_cases;
     if (!test_case.empty()) {
@@ -159,17 +162,83 @@ void document(CliCommand &cmd) {
     Cmd({"doxygen", "docs/Doxyfile"}, root).check();
 }
 
+void watch_changes(const vector<path> &paths, CliCommand &cmd) {
+    int fd = inotify_init();
+    if (fd < 0) {
+        PANIC("Failed to initialize inotify");
+    }
+
+    vector<int> wds;
+    for (const auto &p : paths) {
+        int wd = inotify_add_watch(fd, p.c_str(), IN_MODIFY | IN_CREATE | IN_DELETE);
+        if (wd < 0) {
+            PANIC("Failed to add inotify watch for " + p.string());
+        }
+        wds.push_back(wd);
+    }
+
+    cout << "Watching for changes..." << endl;
+
+    while (true) {
+        char buffer[1024];
+        int length = read(fd, buffer, sizeof(buffer));
+        if (length < 0) {
+            PANIC("Failed to read from inotify");
+        }
+        document(cmd); // Rebuild documentation on change
+    }
+}
+
+int serve(CliCommand &cmd) {
+    document(cmd);
+
+    cout << endl;
+
+    path site = git_root().unwrap() / "docs" / "html";
+    int port = DEFAULT_SERVER_PORT;
+
+    auto port_arg = cmd.find_long("port");
+    if (port_arg && port_arg->set) {
+        try {
+            port = stoi(port_arg->value);
+        } catch (const std::invalid_argument &) {
+            PANIC("Invalid port number: " + port_arg->value);
+        }
+    }
+
+    auto watch_arg = cmd.find_long("watch");
+
+    auto server_fut = Cmd({"python3", "-m", "http.server", to_string(port), "-d", site}).run_async();
+
+    if (watch_arg && watch_arg->set) {
+
+    }
+
+    return server_fut.await();
+}
+
+void add_doc_commands(Cli &cli) {
+    auto &doc_cmd = cli.add_command("doc", "Generate documentation", [](CliCommand &cmd) {
+        document(cmd);
+        return EXIT_SUCCESS;
+    });
+
+    doc_cmd.add_command("serve", "Serve the documentation via a local web server", serve)
+        .add_arg('p', "port",  CliFlagType::Value,
+                "Port to serve the documentation on (default: " + to_string(DEFAULT_SERVER_PORT) + ")")
+        .add_arg('w', "watch", CliFlagType::Bool,
+                "Watch for changes and rebuild the documentation automatically");
+
+}
+
+
 int main(int argc, char* argv[]) {
     GO_REBUILD_YOURSELF(argc, argv);
 
     Cli cli("Task CLI for the bob.hpp project", argc, argv);
 
     add_test_commands(cli);
-
-    cli.add_command("doc", "Generate documentation", [](CliCommand &cmd) {
-        document(cmd);
-        return EXIT_SUCCESS;
-    });
+    add_doc_commands(cli);
 
     return cli.serve();
 }
