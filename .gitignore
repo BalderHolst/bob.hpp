@@ -4,3 +4,4 @@ build/
 .direnv
 docs/*
 !docs/Doxyfile
+.envrc
