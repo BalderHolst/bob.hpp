@@ -12,7 +12,7 @@ int main(int argc, char* argv[]) {
 
     Cli cli("Bob CLI Example", argc, argv);
 
-    cli.add_arg("verbose", 'v', CliFlagType::Bool, "Enable verbose output");
+    cli.add_flag("verbose", 'v', CliFlagType::Bool, "Enable verbose output");
 
     cli.add_command("hello", "Prints a hello message", [](CliCommand &_){
         cout << "Hello, my name is Bob!" << endl;
@@ -59,9 +59,9 @@ int main(int argc, char* argv[]) {
         }
         return EXIT_SUCCESS;
     })
-        .add_arg("an-argument", 'a', CliFlagType::Value, "An argument with a value")
-        .add_arg("flag",        'f', CliFlagType::Bool,   "A simple flag argument")
-        .add_arg("better-v",    'v', CliFlagType::Bool,   "A better -v flag than the global one");
+        .add_flag("an-argument", 'a', CliFlagType::Value, "An argument with a value")
+        .add_flag("flag",        'f', CliFlagType::Bool,   "A simple flag argument")
+        .add_flag("better-v",    'v', CliFlagType::Bool,   "A better -v flag than the global one");
 
     return cli.serve();
 }

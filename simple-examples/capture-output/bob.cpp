@@ -16,7 +16,7 @@ int main(int argc, char* argv[]) {
 
     cout << term::BRIGHT_BLUE;
     cout << "\n======== SCRIPT OUTPUT ========" << endl;
-    cout << cmd.stdout_str;
+    cout << cmd.output_str;
     cout << "===============================" << endl;
     cout << term::RESET;
 }

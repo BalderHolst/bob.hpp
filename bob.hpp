@@ -26,8 +26,6 @@ namespace bob {
     using std::vector;
     using fs::path;
 
-    struct Unit {};
-
     //! Macro to rebuild and rerun the current executable from its source code if needed.
     //! The new executable  will be run with the same arguments as the current one.
     //! This function is best used at the beginning of the `main` function.
@@ -45,6 +43,8 @@ namespace bob {
 
     //! Checks if the output file needs to be rebuilt based on the modification times of the input and output files.
     bool file_needs_rebuild(path input, path output);
+
+    struct Unit {};
 
     template<typename T, typename E>
     union ResultValue {
@@ -117,17 +117,29 @@ namespace bob {
     //! Finds the root directory of the git repository.
     Result<path, string> git_root();
 
-    bool read_fd(int fd);
-
+    //! Represents a command that being executed in the background.
     struct CmdFuture {
+        //! Process ID of the child process.
         pid_t cpid;
+        //! Indicates whether the command has completed.
         bool done;
+        //! Exit code of the command. Only valid after the command has completed.
         int exit_code;
-        int stdout_fd;
+        //! File descriptor for reading the command's output (stdout and stderr).
+        int output_fd;
+        //! If true, the command's output will not be printed to stdout while it is running.
         bool silent = false;
+
         CmdFuture();
+
+        //! Blocks until the command completes and returns the exit code.
         int await(string * output = nullptr);
+
+        //! Polls the command's output and checks if it has completed.
+        //! Also captures and prints any output.
         bool poll(string * output = nullptr);
+
+        //! Kills the command if it is still running.
         bool kill();
     };
 
@@ -137,15 +149,19 @@ namespace bob {
     public:
         //! If true, the command's output will be captured
         bool capture_output = false;
-
         //! If true, the command will not print its output to stdout.
         bool silent = false;
-        string stdout_str;
-        string error_output;
+        //! The command's output captured during execution (stdout and stderr).
+        string output_str;
+        //! The root directory from which the command is executed.
         path root;
         Cmd() = default;
         Cmd (vector<string> &&parts, path root = ".");
+
+        //! Pushes a single part to the command.
         Cmd& push(const string &part);
+
+        //! Pushes multiple parts to the command.
         Cmd& push_many(const vector<string> &parts);
         Cmd& push_many(const vector<path> &parts);
 
@@ -174,84 +190,150 @@ namespace bob {
         int await_future(CmdFuture &fut);
     };
 
-    struct CmdRunnerSlot {
-        CmdFuture fut;
-        int index;
-        CmdRunnerSlot() : index{-1} {}
-    };
 
     class CmdRunner {
-        size_t slot_cursor = 0;
+
+        //! Internal structure to hold a command and its future.
+        struct CmdRunnerSlot {
+            CmdFuture fut;
+            int index;
+            CmdRunnerSlot() : index{-1} {}
+        };
+
+        //!  The index of the next command to run.
+        size_t cursor = 0;
+        //! The number of processes to run concurrently.
         size_t process_count;
+        //! A vector of slots, each holding future of a running command.
         vector<CmdRunnerSlot> slots;
+        //! Initializes the slots with empty complete futures.
+        void init_slots();
+        //! Populate the slots with running commands.
         bool populate_slots();
+        //! Wait for all slots to complete.
         void await_slots();
+        //! Set the exit code for a slot based on its future.
         void set_exit_code(CmdRunnerSlot &slot);
+        //! Check if there are any commands waiting to be run.
         bool any_waiting();
+
     public:
+        //! The commands to be run by this runner.
         vector<Cmd> cmds;
+        //! Exit codes for each command in `cmds`.
         vector<int> exit_codes;
+        //! Creates a CmdRunner with a specified number of processes.
         CmdRunner(size_t process_count);
         CmdRunner(vector<Cmd> cmds);
+        CmdRunner(vector<Cmd> cmds, size_t process_count);
         CmdRunner();
+        //! Returns the number of commands in the runner.
         size_t size();
+        //! Push a single command to the runner.
         void push(Cmd cmd);
+        //! Push multiple commands to the runner.
         void push_many(vector<Cmd> cmds);
+        //! Clears all commands in the runner for reuse.
         void clear();
+        //! Runs all commands in the runner concurrently.
         bool run();
+        //! Returns `true` if all commands in the runner succeeded (exit code 0).
+        bool all_succeded();
+        //! Returns `true` if any command in the runner failed (non-zero exit code).
         bool any_failed();
+        //! Sets the `capture_output` flag for all commands in the runner.
         void capture_output(bool capture = true);
     };
 
+    //! A list of file paths.
     typedef std::vector<fs::path> Paths;
+
+    //! A function that can be used in a `Recipe` to build outputs from inputs.
     typedef std::function<void(const vector<path>&, const vector<path>&)> RecipeFunc;
 
+    //! A build recipe that defiles how to produce outputs from inputs.
     class Recipe {
     public:
+        //! The input files that are used to build the outputs.
         Paths inputs;
+        //! The output files that are expected to be produced by the recipe.
         Paths outputs;
+        //! The function that will be called to build the outputs from the inputs.
         RecipeFunc func;
 
+        //! Constructs a recipe with the given outputs, inputs, and build function.
         Recipe(const Paths &outputs, const Paths &inputs, RecipeFunc func);
+        //! Use the modified time of the inputs and outputs to determine if the recipe needs to be rebuilt.
         bool needs_rebuild() const;
+        //! Builds the outputs from the inputs using the recipe function.
         void build() const;
     };
 
+    //! Types of command line flags.
     enum class CliFlagType {
+        //! Boolean flag, e.g. `-v` or `--verbose`.
         Bool,
+        //! Option with a value, e.g. `-o file.txt` or `--output file.txt`.
         Value
     };
 
-    struct CliArg {
+    //! Represents a command flag argument
+    struct CliFlag {
+
+        //! The short name of the flag, e.g. `-v`.
         char    short_name  = '\0';
+        //! The long name of the flag, e.g. `--verbose`.
         string  long_name   = "";
+        //! Description of the flag, e.g. "Enable verbose output".
         string  description = "";
-        bool    set         = false; // Only used for boolean flags
-        string  value       = "";    // Only used for options with values
+        //! Whether the flag is set or not.
+        bool    set         = false;
+        //! The value of the flag if it is an option with a value, e.g. `file.txt` for `--output file.txt`.
+        //!
+        //! Only used for options with values.
+        string  value       = "";
+        //! The type of the flag..
         CliFlagType type;
 
-        CliArg(const string &long_name, CliFlagType type, string description = "");
-        CliArg(char short_name, CliFlagType type, string description = "");
-        CliArg(char short_name, const string &long_name, CliFlagType type, string description = "");
+        CliFlag(const string &long_name, CliFlagType type, string description = "");
+        CliFlag(char short_name, CliFlagType type, string description = "");
+        CliFlag(char short_name, const string &long_name, CliFlagType type, string description = "");
+
+        //! Checks if the flag is a boolean flag (no value).
         bool is_flag() const;
+
+        //! Checks if the flag is an option (has a value).
         bool is_option() const;
     };
 
-    typedef std::vector<CliArg> CliArgs;
+    //! A list of command line flags.
+    typedef std::vector<CliFlag> CliFlags;
 
-    void print_cli_args(const CliArgs &args);
+    //! Prints the command line flags and their descriptions. Used for help output.
+    void print_cli_args(const CliFlags &args);
 
     class CliCommand;
+
+    //! A function that can be used to handle a command in a CLI.
     typedef std::function<int(CliCommand&)> CliCommandFunc;
 
+    //! Represents a CLI command
     class CliCommand {
     public:
-        vector<string> path; // Path to the command, e.g. {"./bob", "test", "run"}
-        vector<string> args; // Arguments that are not flags
-        string name;         // TODO: Make this function
+        //! Path to the command, e.g. {"./bob", "test", "run"}
+        vector<string> path;
+        //! Arguments that are not flags
+        vector<string> args;
+        // TODO: Make this function
+        //! The name of the command
+        string name;
+        //! The function that will be called when this command is executed.
         CliCommandFunc func;
+        //! Description of the command, e.g. "Run tests".
         string description;
-        vector<CliArg> flags;
+        //! The flags provided to this command.
+        vector<CliFlag> flags;
+        //! Subcommands of this command
         vector<CliCommand> commands;
 
     private:
@@ -263,33 +345,47 @@ namespace bob {
     public:
         CliCommand(const string &name, CliCommandFunc func, const string &description = "");
         CliCommand(const string &name, const string &description = "");
+
+        //! Checks if this command is a menu command (has subcommands).
         bool is_menu() const;
+        //! Prints the command's help message.
         void usage() const;
-        CliArg* find_short(char name);
-        CliArg* find_long(string name);
+        //! Finds a flag by its short name.
+        CliFlag* find_short(char name);
+        //! Finds a flag by its long name.
+        CliFlag* find_long(string name);
+        //! Prints the help message if the `--help` flag is set.
         void handle_help();
+        //! Runs the command with the given arguments.
         int run(int argc, string argv[]);
+        //! Set the description of the command.
         void set_description(const string &desc);
+        //! Sets the function to be called this command is executed without a subcommand.
         void set_default_command(CliCommandFunc f);
+        //! Adds a subcommand to this command.
         CliCommand& add_command(CliCommand command);
         CliCommand& add_command(const string &name, string description, CliCommandFunc func);
         CliCommand& add_command(const string &name, string description);
         CliCommand& add_command(const string &name, CliCommandFunc func);
         CliCommand& add_command(const string &name);
-        CliCommand& add_arg(const CliArg &arg);
-        CliCommand& add_arg(char short_name, CliFlagType type, string description = "");
-        CliCommand& add_arg(const string &long_name, CliFlagType type, string description = "");
-        CliCommand& add_arg(char short_name, const string &long_name, CliFlagType type, string description = "");
-        CliCommand& add_arg(const string &long_name, char short_name, CliFlagType type, string description = "");
+        //! Adds a flag argument to this command.
+        CliCommand& add_flag(const CliFlag &arg);
+        CliCommand& add_flag(char short_name, CliFlagType type, string description = "");
+        CliCommand& add_flag(const string &long_name, CliFlagType type, string description = "");
+        CliCommand& add_flag(char short_name, const string &long_name, CliFlagType type, string description = "");
+        CliCommand& add_flag(const string &long_name, char short_name, CliFlagType type, string description = "");
+        //! Creates a command which is an alias for this command.
         CliCommand alias(const string &name, const string &description = "");
     };
 
+    //! A command line interface (CLI) that can be used to run commands and subcommands.
     class Cli : public CliCommand {
         vector<string> raw_args;
         void set_defaults(int argc, char* argv[]);
     public:
         Cli(int argc, char* argv[]);
         Cli(string title, int argc, char* argv[]);
+        //! Run the CLI and handle the commands.
         int serve();
     };
 
@@ -348,6 +444,8 @@ namespace bob {
         const std::string HIDDEN      = "\033[8m";
 
         struct TermSize { size_t w, h; };
+
+        //! Returns the size of the terminal in characters.
         TermSize size();
     }
 }
@@ -605,7 +703,7 @@ namespace bob {
         if (done) return true;
 
         string new_output = "";
-        bool got_data = read_fd(stdout_fd, &new_output);
+        bool got_data = read_fd(output_fd, &new_output);
         if (got_data && !silent) {
             std::cout << new_output;
         }
@@ -683,8 +781,8 @@ namespace bob {
         std::cout << "CMD: " << render() << std::endl;
 
         // Pseudo-terminal for line-buffered output
-        int stdout_fd;
-        pid_t cpid = forkpty(&stdout_fd, nullptr, nullptr, nullptr);
+        int output_fd;
+        pid_t cpid = forkpty(&output_fd, nullptr, nullptr, nullptr);
         if (cpid < 0) {
             PANIC("Could not forkpty: " + std::string(strerror(errno)));
         }
@@ -719,11 +817,11 @@ namespace bob {
         // --- Parent process ---
 
         // Set master PTY file descriptor to non-blocking mode
-        fcntl(stdout_fd, F_SETFL, O_NONBLOCK);
+        fcntl(output_fd, F_SETFL, O_NONBLOCK);
 
         CmdFuture future;
         future.cpid = cpid;
-        future.stdout_fd = stdout_fd;
+        future.output_fd = output_fd;
         future.done = false;
         future.silent = silent;
 
@@ -745,7 +843,7 @@ namespace bob {
     }
 
     bool Cmd::poll_future(CmdFuture &fut) {
-        bool done = fut.poll(&stdout_str);
+        bool done = fut.poll(&output_str);
         return done;
     }
 
@@ -774,7 +872,7 @@ namespace bob {
             if (!any_waiting()) continue;
 
             // Populate slot with a new command
-            size_t index = slot_cursor++;
+            size_t index = cursor++;
             Cmd cmd = cmds[index];
 
             slot.fut = cmd.run_async();
@@ -807,37 +905,48 @@ namespace bob {
     }
 
     bool CmdRunner::any_waiting() {
-        return slot_cursor < cmds.size();
+        return cursor < cmds.size();
+    }
+
+    void CmdRunner::init_slots() {
+        for (auto &slot : slots) {
+            slot.fut.done = true;
+            slot.fut.output_fd = -1;
+            slot.index = -1; // Mark as empty
+        }
     }
 
     CmdRunner::CmdRunner(size_t process_count):
         process_count(process_count),
         slots(vector<CmdRunnerSlot>(process_count))
     {
-        for (auto &slot : slots) {
-            slot.fut.done = true;
-            slot.fut.stdout_fd = -1;
-        }
+        init_slots();
         assert(process_count > 0 && "Process count must be greater than 0");
     };
 
     CmdRunner::CmdRunner(vector<Cmd> cmds) :
         process_count(sysconf(_SC_NPROCESSORS_ONLN)),
-        slots(vector<CmdRunnerSlot>(process_count))
+        slots(vector<CmdRunnerSlot>(process_count)),
+        cmds(std::move(cmds))
     {
-        for (auto &slot : slots) {
-            slot.fut.done = true;
-            slot.fut.stdout_fd = -1;
-        }
+        init_slots();
         if (process_count == 0) process_count = 1; // Fallback
-        push_many(cmds);
+    }
+
+    CmdRunner::CmdRunner(vector<Cmd> cmds, size_t process_count) :
+        process_count(process_count),
+        slots(vector<CmdRunnerSlot>(process_count)),
+        cmds(std::move(cmds))
+    {
+        init_slots();
+        if (process_count == 0) process_count = 1; // Fallback
     }
 
     CmdRunner::CmdRunner():
         process_count(sysconf(_SC_NPROCESSORS_ONLN)),
         slots(vector<CmdRunnerSlot>(process_count))
     {
-        for (auto &slot : slots) slot.fut.done = true;
+        init_slots();
         if (process_count == 0) process_count = 1; // Fallback
     }
 
@@ -863,13 +972,17 @@ namespace bob {
 
     bool CmdRunner::run() {
         exit_codes.resize(cmds.size(), -1);
-        slot_cursor = 0;
+        cursor = 0;
         populate_slots();
         while (any_waiting()) {
             if (populate_slots()) continue;
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
         await_slots();
+        return !any_failed();
+    }
+
+    bool CmdRunner::all_succeded() {
         return !any_failed();
     }
 
@@ -942,8 +1055,8 @@ namespace bob {
         }
     }
 
-    void print_cli_args(const CliArgs &args) {
-        auto arg_len = [](const CliArg &arg) {
+    void print_cli_args(const CliFlags &args) {
+        auto arg_len = [](const CliFlag &arg) {
             size_t len = 0;
             if (arg.short_name != '\0') len += 2;                           // "-x"
             if (!arg.long_name.empty()) len += 2 + arg.long_name.length();  // "--long"
@@ -956,7 +1069,7 @@ namespace bob {
             max_arg_length = std::max(max_arg_length, arg_len(arg));
         }
 
-        auto arg_placeholder = [](const CliArg &arg) -> string {
+        auto arg_placeholder = [](const CliFlag &arg) -> string {
             if (arg.type == CliFlagType::Bool) return "";
             return arg.long_name.empty() ? "<value>" : "<" + arg.long_name + ">";;
         };
@@ -997,20 +1110,20 @@ namespace bob {
         }
     }
 
-    CliArg::CliArg(const string &long_name, CliFlagType type, string description):
+    CliFlag::CliFlag(const string &long_name, CliFlagType type, string description):
             long_name(long_name), type(type), description(description) {};
 
-    CliArg::CliArg(char short_name, CliFlagType type, string description):
+    CliFlag::CliFlag(char short_name, CliFlagType type, string description):
             short_name(short_name), type(type), description(description) {};
 
-    CliArg::CliArg(char short_name, const string &long_name, CliFlagType type, string description):
+    CliFlag::CliFlag(char short_name, const string &long_name, CliFlagType type, string description):
             short_name(short_name), long_name(long_name), type(type), description(description) {};
 
-    bool CliArg::is_flag() const {
+    bool CliFlag::is_flag() const {
         return type == CliFlagType::Bool;
     }
 
-    bool CliArg::is_option() const {
+    bool CliFlag::is_option() const {
         return type == CliFlagType::Value;
     }
 
@@ -1042,7 +1155,7 @@ namespace bob {
 
             bool found = false;
 
-            for (CliArg &arg : flags) {
+            for (CliFlag &arg : flags) {
 
                 bool short_name_matches = arg.short_name != '\0'
                     && arg_name.length() == 2
@@ -1125,22 +1238,22 @@ namespace bob {
         }
     }
 
-    CliArg* CliCommand::find_short(char name) {
-        for (CliArg &arg : flags) {
+    CliFlag* CliCommand::find_short(char name) {
+        for (CliFlag &arg : flags) {
             if (arg.short_name == name) return &arg;
         }
         return nullptr; // Not found
     }
 
-    CliArg* CliCommand::find_long(string name) {
-        for (CliArg &arg : flags) {
+    CliFlag* CliCommand::find_long(string name) {
+        for (CliFlag &arg : flags) {
             if (arg.long_name == name) return &arg;
         }
         return nullptr; // Not found
     }
 
     void CliCommand::handle_help() {
-        CliArg *help_arg = find_long("help");
+        CliFlag *help_arg = find_long("help");
         if (!help_arg) help_arg = find_short('h');
         if (!help_arg) return; // No help argument found
 
@@ -1167,13 +1280,13 @@ namespace bob {
                 // Pass parent args to subcommand in reverse
                 // order to keep --help as the last argument
                 for (int i = flags.size() - 1; i >= 0; --i) {
-                    CliArg &arg = flags[i];
+                    CliFlag &arg = flags[i];
 
                     // Skip if the argument is already set
                     if (cmd.find_short(arg.short_name)) continue;
                     if (cmd.find_long(arg.long_name))   continue;
 
-                    cmd.add_arg(arg);
+                    cmd.add_flag(arg);
                 }
 
                 cmd.path = subcommand_path;
@@ -1228,9 +1341,9 @@ namespace bob {
         return add_command(CliCommand(name));
     }
 
-    CliCommand& CliCommand::add_arg(const CliArg &arg) {
-        CliArg * short_existing = find_short(arg.short_name);
-        CliArg * long_existing  = find_long(arg.long_name);
+    CliCommand& CliCommand::add_flag(const CliFlag &arg) {
+        CliFlag * short_existing = find_short(arg.short_name);
+        CliFlag * long_existing  = find_long(arg.long_name);
 
         if (short_existing) PANIC("Short argument already exists: " + string({arg.short_name}));
         if (long_existing)  PANIC("Long argument already exists: " + arg.long_name);
@@ -1240,20 +1353,20 @@ namespace bob {
         return *this;
     }
 
-    CliCommand& CliCommand::add_arg(char short_name, CliFlagType type, string description) {
-        return add_arg(CliArg(short_name, type, description));
+    CliCommand& CliCommand::add_flag(char short_name, CliFlagType type, string description) {
+        return add_flag(CliFlag(short_name, type, description));
     }
 
-    CliCommand& CliCommand::add_arg(const string &long_name, CliFlagType type, string description) {
-        return add_arg(CliArg(long_name, type, description));
+    CliCommand& CliCommand::add_flag(const string &long_name, CliFlagType type, string description) {
+        return add_flag(CliFlag(long_name, type, description));
     }
 
-    CliCommand& CliCommand::add_arg(char short_name, const string &long_name, CliFlagType type, string description) {
-        return add_arg(CliArg(short_name, long_name, type, description));
+    CliCommand& CliCommand::add_flag(char short_name, const string &long_name, CliFlagType type, string description) {
+        return add_flag(CliFlag(short_name, long_name, type, description));
     }
 
-    CliCommand& CliCommand::add_arg(const string &long_name, char short_name, CliFlagType type, string description) {
-        return add_arg(CliArg(short_name, long_name, type, description));
+    CliCommand& CliCommand::add_flag(const string &long_name, char short_name, CliFlagType type, string description) {
+        return add_flag(CliFlag(short_name, long_name, type, description));
     }
 
     void Cli::set_defaults(int argc, char* argv[]) {
@@ -1265,7 +1378,7 @@ namespace bob {
         raw_args.assign(argv + 1, argv + argc);
 
         // Add help argument. This will be inherited by all sub commands.
-        add_arg("help", 'h', CliFlagType::Bool, "Prints this help message");
+        add_flag("help", 'h', CliFlagType::Bool, "Prints this help message");
     }
 
     Cli::Cli(int argc, char* argv[]): CliCommand("") {

@@ -96,6 +96,7 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
     runner.run();
 
     if (!runner.any_failed()) {
+        cout << term::GREEN << term::BOLD << "\nAll tests succeeded!" << term::RESET << endl;
         return EXIT_SUCCESS;
     }
 
@@ -116,7 +117,7 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
     cout << endl;
     for (auto cmd : failed_cmds) {
         label(w, cmd->render(), term::RED);
-        cout << cmd->stdout_str << endl;
+        cout << cmd->output_str << endl;
     }
     line(w, term::RED);
 
@@ -180,7 +181,7 @@ int document(CliCommand &cli_cmd) {
 
     size_t warnings = 0;
 
-    std::istringstream iss(cmd.stdout_str);
+    std::istringstream iss(cmd.output_str);
     for (std::string line; std::getline(iss, line);) {
         if (line.find(WARNING_LABEL) != 0) continue; // Skip non-warning lines
         warnings++;
@@ -280,9 +281,9 @@ void add_doc_commands(Cli &cli) {
     auto &doc_cmd = cli.add_command("doc", "Generate documentation", document);
 
     doc_cmd.add_command("serve", "Serve the documentation via a local web server", serve)
-        .add_arg('p', "port",  CliFlagType::Value,
+        .add_flag('p', "port",  CliFlagType::Value,
                 "Port to serve the documentation on (default: " + to_string(DEFAULT_SERVER_PORT) + ")")
-        .add_arg('w', "watch", CliFlagType::Bool,
+        .add_flag('w', "watch", CliFlagType::Bool,
                 "Watch for changes and rebuild the documentation automatically");
 }
 
