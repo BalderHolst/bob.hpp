@@ -18,6 +18,13 @@ enum class Action {
     Replay,
 };
 
+size_t term_width() {
+    size_t w = term::size().w;
+    if (w < 80) w = 80; // Ensure a minimum width for the output
+    if (w > 1000) w = 100; // If the terminal is VERY wide, limit it to 100 characters (fix for CI)
+    return w;
+}
+
 vector<path> find_test_cases() {
     vector<path> cases;
     for (const auto &entry : fs::directory_iterator(TEST_DIR)) {
@@ -104,9 +111,7 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
         }
     }
 
-    size_t w = term::size().w;
-    if (w < 80) w = 80; // Ensure a minimum width for the output
-    if (w > 1000) w = 100; // If the terminal is VERY wide, limit it to 100 characters (fix for CI)
+    size_t w = term_width();
 
     cout << endl;
     for (auto cmd : failed_cmds) {
@@ -157,11 +162,46 @@ void add_test_commands(Cli &cli) {
 
 }
 
-int document(CliCommand &cmd) {
-    cmd.handle_help();
+const string WARNING_LABEL = "[WARNING] ";
+
+int document(CliCommand &cli_cmd) {
+    cli_cmd.handle_help();
     ensure_installed({"doxygen"});
     path root = git_root().unwrap();
-    return Cmd({"doxygen", "docs/Doxyfile"}, root).run();
+
+    Cmd cmd({"doxygen", "docs/Doxyfile"}, root);
+    cmd.capture_output = true;
+
+    int exit_code = cmd.run();
+
+    cout << term::YELLOW;
+    cout << endl;
+
+
+    size_t warnings = 0;
+
+    std::istringstream iss(cmd.stdout_str);
+    for (std::string line; std::getline(iss, line);) {
+        if (line.find(WARNING_LABEL) != 0) continue; // Skip non-warning lines
+        warnings++;
+        cout << line.substr(WARNING_LABEL.length()) << endl;
+    }
+
+    cout << term::RESET << endl;
+
+    size_t w = term_width();
+
+    if (warnings > 0) {
+        cout << term::YELLOW << "Doxygen generated " << warnings << " warning" << (warnings > 1 ? "s" : "") << endl;
+    } else {
+        cout << term::GREEN << "Doxygen generated no warnings" << endl;
+    }
+
+    cout << term::RESET;
+
+    cout << "\nDocumentation generated in: " << root / "docs" / "html" << endl;
+
+    return exit_code;
 }
 
 int serve(CliCommand &cmd) {
