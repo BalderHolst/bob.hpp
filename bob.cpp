@@ -193,9 +193,13 @@ int document(CliCommand &cli_cmd) {
 
     int exit_code = cmd.run();
 
-    cout << term::YELLOW;
-    cout << endl;
+    auto error_arg = cli_cmd.find_long("error");
+    bool error = error_arg && error_arg->set;
 
+    string color = error ? term::RED : term::YELLOW;
+
+    cout << color;
+    cout << endl;
 
     size_t warnings = 0;
 
@@ -210,10 +214,12 @@ int document(CliCommand &cli_cmd) {
 
     size_t w = term_width();
 
+    cout << term::BOLD;
     if (warnings > 0) {
-        cout << term::YELLOW << "Doxygen generated " << warnings << " warning" << (warnings > 1 ? "s" : "") << endl;
+        if (error) exit_code = EXIT_FAILURE;
+        cout << color << "Doxygen generated " << warnings << (error ? " error" : " warning") << (warnings > 1 ? "s" : "") << endl;
     } else {
-        cout << term::GREEN << "Doxygen generated no warnings" << endl;
+        cout << color << "Doxygen generated no warnings" << endl;
     }
 
     cout << term::RESET;
@@ -296,7 +302,8 @@ int serve(CliCommand &cmd) {
 }
 
 void add_doc_commands(Cli &cli) {
-    auto &doc_cmd = cli.add_command("doc", "Generate documentation", document);
+    auto &doc_cmd = cli.add_command("doc", "Generate documentation", document)
+        .add_flag('e', "error", CliFlagType::Bool, "Treat warnings as errors");
 
     doc_cmd.add_command("serve", "Serve the documentation via a local web server", serve)
         .add_flag('p', "port",  CliFlagType::Value,
