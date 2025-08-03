@@ -221,8 +221,6 @@ int document(CliCommand &cli_cmd) {
     if (warnings > 0) {
         if (error) exit_code = EXIT_FAILURE;
         cout << color << "Doxygen generated " << warnings << (error ? " error" : " warning") << (warnings > 1 ? "s" : "") << endl;
-    } else {
-        cout << color << "Doxygen generated no warnings" << endl;
     }
 
     cout << term::RESET;

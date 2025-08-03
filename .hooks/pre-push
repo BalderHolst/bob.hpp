@@ -5,6 +5,12 @@ import subprocess
 SRC = "./bob.cpp"
 BIN = "./bob"
 
+# Checkout submodules
+subprocess.run(["git", "submodule", "update", "--init", "--recursive"], check=True)
+
+# Check documentation
+subprocess.run([BIN, "doc", "-e"], check=True)
+
 # Compile the test binary if it does not exist
 if not os.path.exists(BIN):
     print(f"Compiling {SRC} to {BIN}...")
@@ -12,3 +18,10 @@ if not os.path.exists(BIN):
 
 # Run the test binary
 subprocess.run([BIN, "test"], check=True)
+
+# Check for uncommitted changes
+status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+if status.stdout:
+    print("\nUncommitted changes detected. Please commit or stash them before pushing.")
+    print(status.stdout)
+    exit(1)
