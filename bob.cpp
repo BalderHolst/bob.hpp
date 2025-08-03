@@ -185,8 +185,11 @@ const string WARNING_LABEL = "[WARNING] ";
 
 int document(CliCommand &cli_cmd) {
     cli_cmd.handle_help();
-    ensure_installed({"doxygen"});
+    ensure_installed({"git", "doxygen"});
     path root = find_root();
+
+    // Pull theme submodule
+    Cmd({"git", "submodule", "update", "--init", "--recursive"}, root).check();
 
     Cmd cmd({"doxygen", "docs/Doxyfile"}, root);
     cmd.capture_output = true;

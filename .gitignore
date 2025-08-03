@@ -2,6 +2,6 @@ bob
 test
 build/
 .direnv
-docs/*
-!docs/Doxyfile
+docs/html
+docs/man
 .envrc
