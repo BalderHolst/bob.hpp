@@ -20,7 +20,7 @@
 
 namespace fs = std::filesystem;
 
-//! Contains the core functionality of the Bob build system.
+//! Contains the functionality of the Bob build system.
 namespace bob {
     using std::string;
     using std::vector;
@@ -41,7 +41,18 @@ namespace bob {
     //! This is used in the `_go_rebuild_yourself(int argc, char * argv[], path source_file_name)` function.
     int run_yourself(fs::path bin, int argc, char* argv[]);
 
-    //! Checks if the output file needs to be rebuilt based on the modification times of the input and output files.
+    //! Checks if an output file is older than its input file and needs to be rebuilt.
+    //!
+    //! @param input  The source file path.
+    //! @param output The target file path.
+    //! @return `true` if the output is missing or older than the input; false otherwise.
+    //!
+    //! @par Example
+    //! ```
+    //! if (bob::file_needs_rebuild("main.cpp", "main.o")) {
+    //!     compile("main.cpp");
+    //! }
+    //! ```
     bool file_needs_rebuild(path input, path output);
 
     #define PANIC(msg) bob::_panic(__FILE__, __LINE__, msg)
@@ -52,29 +63,97 @@ namespace bob {
     void _warning(path file, int line, string msg);
     //! \endcond
 
-    //! Create a directory and its parents if it does not exist.
+    //! Creates a directory and all necessary parent directories.
+    //!
+    //! @param dir The directory path to create.
+    //! @return The created directory path.
+    //!
+    //! @par Examples
+    //! ```cpp
+    //!     path build_dir = mkdirs("build/output");
+    //! ```
+    //! or
+    //! ```
+    //!     path build_dir = "build/output";
+    //!     mkdirs(build_dir);
+    //! ```
     path mkdirs(path dir);
 
-    //! Returns a string that can be used as an include path for the given directory.
-    //! E.g. `I("/usr/include")` will return `"-I/usr/include"`.
+    //! Converts a path to a string with the `-I` prefix for use in compiler commands.
+    //!
+    //! @param p The path to convert.
+    //! @return The path as a UTF-8 encoded string.
+    //!
+    //! @par Example
+    //! ```
+    //! Cmd compile({"g++", I("src"), "-o", "output"});
+    //! compile.run(); // Runs `g++ -Isrc -o output`
+    //! ```
     string I(path p);
 
-    //! Searches for a binary in the system PATH.
+    //! Searches for a binary in the system $PATH variable.
+    //!
+    //! @param bin_name The name of the binary to search for.
+    //! @return The path to the binary if found, otherwise an empty path.
+    //!
+    //! @par Example
+    //! ```
+    //! path git_bin = search_path("git");
+    //! if (git_bin.empty()) {
+    //!     std::cerr << "git not found!\n";
+    //! }
+    //! ```
     path search_path(const string &bin_name);
 
-    //! Prints a checklist of items with their statuses.
+    //! Displays a checklist of items with their statuses.
+    //!
+    //! @param items    A list of checklist item names.
+    //! @param statuses A list of boolean statuses; true means complete, false means incomplete.
+    //!
+    //! @par Example
+    //! ```
+    //! checklist({"Download", "Build", "Test"}, {true, false, false});
+    //! ```
     void checklist(const vector<string> &items, const vector<bool> &statuses);
 
-    //! Ensures that the given packages are installed in the system PATH.
-    //! If any package is not found, it will print a checklist and exit the program.
+    //! Ensures that the specified packages are installed. If they are not, a checklist is printed
+    //! of the missing and found packages, and the program exits with an error code.
+    //!
+    //! @param packages A list of package names to verify and install if missing.
+    //!
+    //! @par Example
+    //! ```
+    //! ensure_installed({"cmake", "ninja", "git"});
+    //! ```
     void ensure_installed(vector<string> packages);
 
-    //! Finds the root directory of the project by looking for a marker file.
-    // TODO: Docmumentation
+    //! Finds the root directory containing a specific marker file.
+    //!
+    //! @param root         Pointer to store the found root path.
+    //! @param marker_file  The file name to look for in the directory hierarchy.
+    //! @return true if the root was found; false otherwise.
+    //!
+    //! @par Example
+    //! ```
+    //! path project_root;
+    //! if (find_root(&project_root, ".git")) {
+    //!     std::cout << "Root: " << project_root << "\n";
+    //! }
+    //! ```
     bool find_root(path * root, string marker_file);
 
-    //! Finds the root directory of the git repository.
-    // TODO: Docmumentation
+    //! Finds the root of a Git repository.
+    //!
+    //! @param root Pointer to store the Git repository root path.
+    //! @return true if inside a Git repository; false otherwise.
+    //!
+    //! @par Example
+    //! ```
+    //! path git_root_path;
+    //! if (git_root(&git_root_path)) {
+    //!     std::cout << "Git root: " << git_root_path << "\n";
+    //! }
+    //! ```
     bool git_root(path * root);
 
     //! Represents a command that being executed in the background.
@@ -104,55 +183,184 @@ namespace bob {
     };
 
     //! Represents a command to be executed in the operating system shell.
+    //!
+    //! This class allows building command lines from parts (strings or paths),
+    //! running them synchronously or asynchronously, and optionally capturing their output.
+    //! It supports managing execution context such as the root directory and controlling
+    //! output visibility (using the `silent` field).
+    //!
+    //! @par Example - Synchronous Command Execution
+    //! ```cpp
+    //! Cmd compile({"g++", I("src"), "-o", "output"});
+    //! compile.capture_output = true;
+    //! int status = compile.run();
+    //! if (status != 0) {
+    //!     std::cerr << "Compilation failed:\n" << compile.output_str;
+    //! }
+    //! ```
+    //! @par Example - Asynchronous Command Execution
+    //! ```cpp
+    //! Cmd cmd({"sleep", "3"}); // Heavy work
+    //! CmdFuture fut = cmd.run_async();
+    //! while (!fut.done) {
+    //!     cmd.poll_future(fut));
+    //!     std::cout << "waiting for command to finish...\n";
+    //!     usleep(100000); // sleep for 100ms
+    //! }
+    //! std::cout << "Command finished with exit code: " << fut.exit_code << "\n";
+    //! ```
     class Cmd {
         vector<string> parts;
     public:
-        //! If true, the command's output will be captured
+        //! If true, the command's output will be captured.
         bool capture_output = false;
+
         //! If true, the command will not print its output to stdout.
         bool silent = false;
+
         //! The command's output captured during execution (stdout and stderr).
         string output_str = "";
+
         //! The root directory from which the command is executed.
         path root = ".";
 
-        //! Create an empty command
+        //! Creates an empty command.
         Cmd() = default;
 
-        //! Create a command from parts
-        Cmd (vector<string> &&parts, path root = ".");
+        //! Creates a command from a list of parts and optional root directory.
+        //!
+        //! @param parts The command and its arguments as string parts.
+        //! @param root The root directory where the command runs (default is current directory).
+        //!
+        //! @par Example
+        //! ```cpp
+        //! Cmd compile({"g++", "-o", "app"}, "/home/user/project");
+        //! ```
+        Cmd(vector<string> &&parts, path root = ".");
 
-        //! Pushes a single part to the command.
+        //! Adds a single part (argument or command) to the command.
+        //!
+        //! @param part The part to add.
+        //! @return Reference to this command (for chaining).
+        //!
+        //! @par Example
+        //! ```cpp
+        //! Cmd cmd;
+        //! cmd.push("g++").push("app.c").push("-o").push("app");
+        //! ```
         Cmd& push(const string &part);
 
-        //! Pushes multiple string parts to the command.
+        //! Adds multiple string parts to the command.
+        //!
+        //! @param parts The parts to add.
+        //! @return Reference to this command.
+        //!
+        //! @par Example
+        //! ```cpp
+        //! const vector<string> FLAGS = {"-Wall", "-O2"};
+        //! Cmd cmd;
+        //! cmd
+        //!     .push_many({"g++", "app.c", "-o", "app"});
+        //!     .push_many(FLAGS);
+        //! ```
         Cmd& push_many(const vector<string> &parts);
 
-        //! Pushes multiple path parts to the command.
+        //! Adds multiple path parts to the command.
+        //!
+        //! @param parts The path parts to add.
+        //! @return Reference to this command.
+        //!
+        //! @par Example
+        //! ```cpp
+        //! Cmd cmd;
+        //! cmd.push_many({git_root() / "src" / "main.cpp"});
+        //! ```
         Cmd& push_many(const vector<path> &parts);
 
-        //! Returns the command as a printable string.
+        //! Creates a printable string representation of the command.
+        //!
+        //! @return The command rendered as a string.
+        //!
+        //! @par Example
+        //! ```cpp
+        //! Cmd cmd({"ls", "-la"});
+        //! std::cout << cmd.render() << std::endl; // prints: "ls -la"
+        //! ```
         string render() const;
 
-        //! Runs the command asynchronously and returns a `CmdFuture` object.
+        //! Runs the command asynchronously and returns a future object.
         //!
-        //! This future can be awaited and polled until the command completes.
+        //! @return A CmdFuture object representing the running command.
+        //!
+        //! @par Example
+        //! ```cpp
+        //! CmdFuture fut = cmd.run_async();
+        //! // Do other work, then await or poll fut...
+        //! ```
         CmdFuture run_async() const;
 
-        //! Runs the command and returns the exit status.
+        //! Runs the command synchronously and returns its exit status.
+        //!
+        //! @return The command's exit code.
+        //!
+        //! @par Example
+        //! ```cpp
+        //! Cmd cmd({"seq", "1000"});
+        //! int status = cmd.run();
+        //! if (status != 0) { /* handle error */ }
+        //! ```
         int run();
 
-        //! Runs the command and checks that it exited with status 0.
+        //! Runs the command and throws if the exit status is not zero.
+        //!
+        //! @throws std::runtime_error if the command exits with a non-zero status.
+        //!
+        //! @par Example
+        //! ```cpp
+        //! Cmd cmd({"echo", "Hello, World!"});
+        //! cmd.check(); // throws if command failed
+        //! ```
         void check();
 
-        //! Clears the command's parts to be reused for another command.
+        //! Clears all parts of the command so it can be reused.
+        //!
+        //! @par Example
+        //! ```cpp
+        //!
+        //! Cmd cmd({"echo", "Hello"});
+        //! cmd.run();
+        //!
+        //! cmd.clear();
+        //! cmd.push("echo").push(" world!");
+        //! cmd.run();
+        //! ```
         void clear();
 
-        //! Polls the command's future to check if it has completed
-        //! and captures its output if available.
+        //! Polls an ongoing asynchronous command to check if it has finished.
+        //! Captures and prints output based on the `capture_output` and `silent` fields.
+        //!
+        //! @param fut The CmdFuture object representing the running command.
+        //! @return True if the command has completed; false otherwise.
+        //!
+        //! @par Example
+        //! ```cpp
+        //! if (cmd.poll_future(fut)) {
+        //!     std::cout << "Done\n";
+        //! }
+        //! ```
         bool poll_future(CmdFuture &fut);
 
-        //! Awaits the command's future to complete and captures its output.
+        //! Waits for an asynchronous command to finish and captures its output.
+        //!
+        //! @param fut The CmdFuture object representing the running command.
+        //! @return The command's exit status.
+        //!
+        //! @par Example
+        //! ```cpp
+        //! Cmd cmd({"sleep", "3"});
+        //! CmdFuture fut = cmd.run_async();
+        //! int exit_code = cmd.await_future(fut);
+        //! ```
         int await_future(CmdFuture &fut);
     };
 
