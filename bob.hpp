@@ -44,55 +44,13 @@ namespace bob {
     //! Checks if the output file needs to be rebuilt based on the modification times of the input and output files.
     bool file_needs_rebuild(path input, path output);
 
-    struct Unit {};
-
-    template<typename T, typename E>
-    union ResultValue {
-        T success;
-        E error;
-        ResultValue() {}
-        ~ResultValue() {}
-    };
-
-    template<typename T>
-    struct Ok {
-        T value;
-        Ok(const T& val) : value(val) {}
-        Ok(T&& val) : value(std::forward<T>(val)) {}
-    };
-
-    template<typename E>
-    struct Err {
-        E error;
-        Err(const E& err) : error(err) {}
-        Err(E&& err) : error(std::forward<E>(err)) {}
-    };
-
-    template<typename T, typename E>
-    class Result {
-        ResultValue<T, E> value;
-        bool status; // true = success, false = error
-    public:
-        Result(const Ok<T>& ok);
-        Result(const Err<E>& err);
-        Result(Ok<T>&& ok);
-        Result(Err<E>&& err);
-        ~Result();
-
-        bool is_ok() const;
-        bool is_err() const;
-
-        Ok<T> get_ok();
-        Err<T> get_err();
-        const T& unwrap() const;
-        const E& unwrap_err() const;
-    };
-
     #define PANIC(msg) bob::_panic(__FILE__, __LINE__, msg)
     #define WARNING(msg) bob::_warning(__FILE__, __LINE__, msg)
 
+    //! \cond DO_NOT_DOCUMENT
     [[noreturn]] void _panic(path file, int line, string msg);
     void _warning(path file, int line, string msg);
+    //! \endcond
 
     //! Create a directory and its parents if it does not exist.
     path mkdirs(path dir);
@@ -112,10 +70,12 @@ namespace bob {
     void ensure_installed(vector<string> packages);
 
     //! Finds the root directory of the project by looking for a marker file.
-    Result<path, Unit> find_root(string marker_file);
+    // TODO: Docmumentation
+    bool find_root(path * root, string marker_file);
 
     //! Finds the root directory of the git repository.
-    Result<path, string> git_root();
+    // TODO: Docmumentation
+    bool git_root(path * root);
 
     //! Represents a command that being executed in the background.
     struct CmdFuture {
@@ -152,17 +112,23 @@ namespace bob {
         //! If true, the command will not print its output to stdout.
         bool silent = false;
         //! The command's output captured during execution (stdout and stderr).
-        string output_str;
+        string output_str = "";
         //! The root directory from which the command is executed.
-        path root;
+        path root = ".";
+
+        //! Create an empty command
         Cmd() = default;
+
+        //! Create a command from parts
         Cmd (vector<string> &&parts, path root = ".");
 
         //! Pushes a single part to the command.
         Cmd& push(const string &part);
 
-        //! Pushes multiple parts to the command.
+        //! Pushes multiple string parts to the command.
         Cmd& push_many(const vector<string> &parts);
+
+        //! Pushes multiple path parts to the command.
         Cmd& push_many(const vector<path> &parts);
 
         //! Returns the command as a printable string.
@@ -191,6 +157,7 @@ namespace bob {
     };
 
 
+    //! A class for running many commands in parallel.
     class CmdRunner {
 
         //! Internal structure to hold a command and its future.
@@ -222,10 +189,18 @@ namespace bob {
         vector<Cmd> cmds;
         //! Exit codes for each command in `cmds`.
         vector<int> exit_codes;
-        //! Creates a CmdRunner with a specified number of processes.
+        //! Create a `CmdRunner` with a specified number of processes.
         CmdRunner(size_t process_count);
+        //! Create a `CmdRunner` with a list of commands.
+        //!
+        //! The process count is the thread count of the current processor
         CmdRunner(vector<Cmd> cmds);
+        //! Create a `CmdRunner` with a list of commands and a maximum number
+        //! of simultaneous processes.
         CmdRunner(vector<Cmd> cmds, size_t process_count);
+        //! Create an empty `CmdRunner`.
+        //!
+        //! The process count is the thread count of the current processor
         CmdRunner();
         //! Returns the number of commands in the runner.
         size_t size();
@@ -241,6 +216,8 @@ namespace bob {
         bool all_succeded();
         //! Returns `true` if any command in the runner failed (non-zero exit code).
         bool any_failed();
+        //! Prints the output of all commands that failed.
+        void print_failed();
         //! Sets the `capture_output` flag for all commands in the runner.
         void capture_output(bool capture = true);
     };
@@ -295,8 +272,11 @@ namespace bob {
         //! The type of the flag..
         CliFlagType type;
 
+        //! Create a CLI flag
         CliFlag(const string &long_name, CliFlagType type, string description = "");
+        //! Create a CLI flag
         CliFlag(char short_name, CliFlagType type, string description = "");
+        //! Create a CLI flag
         CliFlag(char short_name, const string &long_name, CliFlagType type, string description = "");
 
         //! Checks if the flag is a boolean flag (no value).
@@ -334,7 +314,7 @@ namespace bob {
         //! The flags provided to this command.
         vector<CliFlag> flags;
         //! Subcommands of this command
-        vector<CliCommand> commands;
+        vector<CliCommand> commands; // TODO: Make this a fixed size array, to avoid invalidating references in push
 
     private:
         [[noreturn]]
@@ -343,7 +323,11 @@ namespace bob {
         int call_func();
 
     public:
+
+        //! Create a CLI command with a command function to be executed when this command is invoked.
         CliCommand(const string &name, CliCommandFunc func, const string &description = "");
+
+        //! Create a CLI command which prints its subcommands and flags when invoked.
         CliCommand(const string &name, const string &description = "");
 
         //! Checks if this command is a menu command (has subcommands).
@@ -363,16 +347,26 @@ namespace bob {
         //! Sets the function to be called this command is executed without a subcommand.
         void set_default_command(CliCommandFunc f);
         //! Adds a subcommand to this command.
+        //! Returns a reference to the new command.
         CliCommand& add_command(CliCommand command);
+        //! Adds a subcommand with a command function to this command. Returns a reference to the new command.
         CliCommand& add_command(const string &name, string description, CliCommandFunc func);
+        //! Adds a subcommand to this command. Returns a reference to the new command.
         CliCommand& add_command(const string &name, string description);
+        //! Adds a subcommand with a command function and without a description to this command.
+        //! Returns a reference to the new command.
         CliCommand& add_command(const string &name, CliCommandFunc func);
+        //! Adds a subcommand without a description to this command. Returns a reference to the new command.
         CliCommand& add_command(const string &name);
         //! Adds a flag argument to this command.
         CliCommand& add_flag(const CliFlag &arg);
+        //! Adds a short flag argument to this command.
         CliCommand& add_flag(char short_name, CliFlagType type, string description = "");
+        //! Adds a long flag argument to this command.
         CliCommand& add_flag(const string &long_name, CliFlagType type, string description = "");
+        //! Adds a short and long flag argument to this command.
         CliCommand& add_flag(char short_name, const string &long_name, CliFlagType type, string description = "");
+        //! Adds a short and long flag argument to this command.
         CliCommand& add_flag(const string &long_name, char short_name, CliFlagType type, string description = "");
         //! Creates a command which is an alias for this command.
         CliCommand alias(const string &name, const string &description = "");
@@ -383,7 +377,9 @@ namespace bob {
         vector<string> raw_args;
         void set_defaults(int argc, char* argv[]);
     public:
+        //! Create a new CLI interface.
         Cli(int argc, char* argv[]);
+        //! Create a new CLI interface with a title.
         Cli(string title, int argc, char* argv[]);
         //! Run the CLI and handle the commands.
         int serve();
@@ -392,58 +388,80 @@ namespace bob {
     //! Terminal related constants and functions.
     namespace term {
 
-        // Reset Style
-        const std::string RESET       = "\033[0m";
+        //------------------------------------------------------------------------
+        //! @name Reset Style
+        //! @{
+        const std::string RESET = "\033[0m"; //!< Reset style
+        //! @}
 
-        // Regular Colors
-        const std::string BLACK       = "\033[30m";
-        const std::string RED         = "\033[31m";
-        const std::string GREEN       = "\033[32m";
-        const std::string YELLOW      = "\033[33m";
-        const std::string BLUE        = "\033[34m";
-        const std::string MAGENTA     = "\033[35m";
-        const std::string CYAN        = "\033[36m";
-        const std::string WHITE       = "\033[37m";
+        //------------------------------------------------------------------------
+        //! @name Regular Colors
+        //! @{
+        const std::string BLACK   = "\033[30m"; //!< Black text
+        const std::string RED     = "\033[31m"; //!< Red text
+        const std::string GREEN   = "\033[32m"; //!< Green text
+        const std::string YELLOW  = "\033[33m"; //!< Yellow text
+        const std::string BLUE    = "\033[34m"; //!< Blue text
+        const std::string MAGENTA = "\033[35m"; //!< Magenta text
+        const std::string CYAN    = "\033[36m"; //!< Cyan text
+        const std::string WHITE   = "\033[37m"; //!< White text
+        //! @}
 
-        // Bright Colors
-        const std::string BRIGHT_BLACK   = "\033[90m";
-        const std::string BRIGHT_RED     = "\033[91m";
-        const std::string BRIGHT_GREEN   = "\033[92m";
-        const std::string BRIGHT_YELLOW  = "\033[93m";
-        const std::string BRIGHT_BLUE    = "\033[94m";
-        const std::string BRIGHT_MAGENTA = "\033[95m";
-        const std::string BRIGHT_CYAN    = "\033[96m";
-        const std::string BRIGHT_WHITE   = "\033[97m";
+        //------------------------------------------------------------------------
+        //! @name Bright Colors
+        //! @{
+        const std::string BRIGHT_BLACK   = "\033[90m"; //!< Bright black text
+        const std::string BRIGHT_RED     = "\033[91m"; //!< Bright red text
+        const std::string BRIGHT_GREEN   = "\033[92m"; //!< Bright green text
+        const std::string BRIGHT_YELLOW  = "\033[93m"; //!< Bright yellow text
+        const std::string BRIGHT_BLUE    = "\033[94m"; //!< Bright blue text
+        const std::string BRIGHT_MAGENTA = "\033[95m"; //!< Bright magenta text
+        const std::string BRIGHT_CYAN    = "\033[96m"; //!< Bright cyan text
+        const std::string BRIGHT_WHITE   = "\033[97m"; //!< Bright white text
+        //! @}
 
-        // Background Colors
-        const std::string BG_BLACK       = "\033[40m";
-        const std::string BG_RED         = "\033[41m";
-        const std::string BG_GREEN       = "\033[42m";
-        const std::string BG_YELLOW      = "\033[43m";
-        const std::string BG_BLUE        = "\033[44m";
-        const std::string BG_MAGENTA     = "\033[45m";
-        const std::string BG_CYAN        = "\033[46m";
-        const std::string BG_WHITE       = "\033[47m";
+        //------------------------------------------------------------------------
+        //! @name Background Colors
+        //! @{
+        const std::string BG_BLACK   = "\033[40m"; //!< Black background
+        const std::string BG_RED     = "\033[41m"; //!< Red background
+        const std::string BG_GREEN   = "\033[42m"; //!< Green background
+        const std::string BG_YELLOW  = "\033[43m"; //!< Yellow background
+        const std::string BG_BLUE    = "\033[44m"; //!< Blue background
+        const std::string BG_MAGENTA = "\033[45m"; //!< Magenta background
+        const std::string BG_CYAN    = "\033[46m"; //!< Cyan background
+        const std::string BG_WHITE   = "\033[47m"; //!< White background
+        //! @}
 
-        // Bright Backgrounds
-        const std::string BG_BRIGHT_BLACK   = "\033[100m";
-        const std::string BG_BRIGHT_RED     = "\033[101m";
-        const std::string BG_BRIGHT_GREEN   = "\033[102m";
-        const std::string BG_BRIGHT_YELLOW  = "\033[103m";
-        const std::string BG_BRIGHT_BLUE    = "\033[104m";
-        const std::string BG_BRIGHT_MAGENTA = "\033[105m";
-        const std::string BG_BRIGHT_CYAN    = "\033[106m";
-        const std::string BG_BRIGHT_WHITE   = "\033[107m";
+        //------------------------------------------------------------------------
+        //! @name Bright Backgrounds
+        //! @{
+        const std::string BG_BRIGHT_BLACK   = "\033[100m"; //!< Bright black background
+        const std::string BG_BRIGHT_RED     = "\033[101m"; //!< Bright red background
+        const std::string BG_BRIGHT_GREEN   = "\033[102m"; //!< Bright green background
+        const std::string BG_BRIGHT_YELLOW  = "\033[103m"; //!< Bright yellow background
+        const std::string BG_BRIGHT_BLUE    = "\033[104m"; //!< Bright blue background
+        const std::string BG_BRIGHT_MAGENTA = "\033[105m"; //!< Bright magenta background
+        const std::string BG_BRIGHT_CYAN    = "\033[106m"; //!< Bright cyan background
+        const std::string BG_BRIGHT_WHITE   = "\033[107m"; //!< Bright white background
+        //! @}
 
-        // Text styles
-        const std::string BOLD        = "\033[1m";
-        const std::string DIM         = "\033[2m";
-        const std::string UNDERLINE   = "\033[4m";
-        const std::string BLINK       = "\033[5m";
-        const std::string INVERT      = "\033[7m";
-        const std::string HIDDEN      = "\033[8m";
+        //------------------------------------------------------------------------
+        //! @name Text Styles
+        //! @{
+        const std::string BOLD      = "\033[1m"; //!< Bold style
+        const std::string DIM       = "\033[2m"; //!< Dim style
+        const std::string UNDERLINE = "\033[4m"; //!< Underline style
+        const std::string BLINK     = "\033[5m"; //!< Blink style
+        const std::string INVERT    = "\033[7m"; //!< Invert style
+        const std::string HIDDEN    = "\033[8m"; //!< Hidden style
+        //! @}
 
-        struct TermSize { size_t w, h; };
+        //! Terminal size in characters.
+        struct TermSize {
+            size_t w; //!< Terminal Width
+            size_t h; //!< Terminal Height
+        };
 
         //! Returns the size of the terminal in characters.
         TermSize size();
@@ -453,6 +471,7 @@ namespace bob {
 #endif // BOB_H_
 
 #ifdef BOB_IMPLEMENTATION
+//! \cond DO_NOT_DOCUMENT
 
 namespace bob {
 
@@ -522,21 +541,20 @@ namespace bob {
 
     }
 
-    Result<path, Unit> find_root(string marker_file) {
-        fs::path git_root = fs::current_path();
-        while (git_root != git_root.root_path()) {
-            if (fs::exists(git_root / marker_file)) {
-                return Ok(git_root);
+    bool find_root(path * root, string marker_file) {
+        path &root_path = *root;
+        root_path = fs::current_path();
+        while (root_path != root_path.root_path()) {
+            if (fs::exists(root_path / marker_file)) {
+                return true;
             }
-            git_root = git_root.parent_path();
+            root_path = root_path.parent_path();
         }
-        return Err(Unit());
+        return false;
     }
 
-    Result<path, string> git_root() {
-        auto res = find_root(".git");
-        if (res.is_ok()) return res.get_ok();
-        else return Err<string>("You are not in a git repository.");
+    bool git_root(path * root) {
+        return find_root(root, ".git");
     }
 
     // Create the directory if it does not exist. Returns the absolute path of the directory.
@@ -628,54 +646,6 @@ namespace bob {
         exit(EXIT_FAILURE);
     }
 
-    template<typename T, typename E>
-    Result<T, E>::Result(const Ok<T>& ok)   : status(true)  { new (&value.success) T(ok.value); }
-
-    template<typename T, typename E>
-    Result<T, E>::Result(const Err<E>& err) : status(false) { new (&value.error)   E(err.error); }
-
-    template<typename T, typename E>
-    Result<T, E>::Result(Ok<T>&& ok)        : status(true)  { new (&value.success) T(std::move(ok.value)); }
-
-    template<typename T, typename E>
-    Result<T, E>::Result(Err<E>&& err)      : status(false) { new (&value.error)   E(std ::move(err.error)); }
-
-    template<typename T, typename E>
-    Result<T, E>::~Result() {
-        if (status) value.success.~T();
-        else value.error.~E();
-    }
-
-    template<typename T, typename E>
-    bool Result<T, E>::is_ok() const { return status; }
-
-    template<typename T, typename E>
-    bool Result<T, E>::is_err() const { return !status; }
-
-    template<typename T, typename E>
-    Ok<T> Result<T, E>::get_ok() {
-        if (!status) throw std::logic_error("Called `get_ok` on an error Result");
-        return value.success;
-    }
-
-    template<typename T, typename E>
-    Err<T> Result<T, E>::get_err() {
-        if (status) throw std::logic_error("Called `get_err` on a success Result");
-        return value.error;
-    }
-
-    template<typename T, typename E>
-    const T& Result<T, E>::unwrap() const {
-        if (!status) throw std::logic_error("Called `unwrap` on an error Result");
-        return value.success;
-    }
-
-    template<typename T, typename E>
-    const E& Result<T, E>::unwrap_err() const {
-        if (status) throw std::logic_error("Called `unwrap_err` on a success Result");
-        return value.error;
-    }
-
     bool read_fd(int fd, string * target) {
         bool got_data = false;
         for (;;) {
@@ -746,20 +716,17 @@ namespace bob {
         return *this;
     }
 
+    Cmd& Cmd::push_many(const vector<path> &parts) {
+        for (const auto &part : parts) push(part.string());
+        return *this;
+    }
+
     Cmd& Cmd::push_many(const vector<string> &parts) {
         for (const auto &part : parts) {
             this->parts.push_back(part);
         }
         return *this;
     }
-
-    Cmd& Cmd::push_many(const vector<path> &parts) {
-        for (const auto &part : parts) {
-            this->parts.push_back(part);
-        }
-        return *this;
-    }
-
 
     string Cmd::render() const {
         string result;
@@ -991,6 +958,17 @@ namespace bob {
             if (exit_code != 0) return true;
         }
         return false;
+    }
+    
+    void CmdRunner::print_failed() {
+        for (size_t i = 0; i < cmds.size(); ++i) {
+            if (exit_codes[i] != 0) {
+                std::cerr << term::RED << "[FAILED] " << cmds[i].render() << " (exit code: " << exit_codes[i] << ")" << term::RESET << std::endl;
+                if (!cmds[i].output_str.empty()) {
+                    std::cerr << cmds[i].output_str;
+                }
+            }
+        }
     }
 
     void CmdRunner::capture_output(bool capture) {
@@ -1402,4 +1380,5 @@ namespace bob {
     }
 }
 
+//! \endcond
 #endif // BOB_IMPLEMENTATION

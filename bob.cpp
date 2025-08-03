@@ -50,10 +50,20 @@ void line(size_t width, const string color = "", char fill = '=') {
     cout << color << setw(width) << setfill(fill) << "" << term::RESET << endl;
 }
 
+path find_root() {
+    path root;
+    if (!git_root(&root)) {
+        PANIC("Could not find git root directory.");
+    }
+    return root;
+}
+
 int test(CliCommand &cmd, Action action, path test_case = "") {
     cmd.handle_help();
 
     ensure_installed({"git", "g++", "python3"});
+
+    path root = find_root();
 
     vector<path> test_cases;
     if (!test_case.empty()) {
@@ -74,6 +84,10 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
         runner.push(Cmd({"git", "clean", "-xdf", test_case}));
     }
     runner.run();
+    if (runner.any_failed()) {
+        runner.print_failed();
+        return EXIT_FAILURE;
+    }
 
     cout << "\nCompiling test cases..." << endl;
     runner.clear();
@@ -81,11 +95,15 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
         runner.push(Cmd({"g++", "bob.cpp", "-o", "bob"}, test_case));
     }
     runner.run();
+    if (runner.any_failed()) {
+        runner.print_failed();
+        return EXIT_FAILURE;
+    }
 
     cout << "\nRunning tests..." << endl;
     runner.clear();
     for (const auto &test_case : test_cases) {
-        path rere_path = fs::relative(git_root().unwrap() / "rere.py", test_case);
+        path rere_path = fs::relative(root / "rere.py", test_case);
         runner.push(Cmd({
                     "python3",
                     rere_path,
@@ -168,7 +186,7 @@ const string WARNING_LABEL = "[WARNING] ";
 int document(CliCommand &cli_cmd) {
     cli_cmd.handle_help();
     ensure_installed({"doxygen"});
-    path root = git_root().unwrap();
+    path root = find_root();
 
     Cmd cmd({"doxygen", "docs/Doxyfile"}, root);
     cmd.capture_output = true;
@@ -210,9 +228,9 @@ int serve(CliCommand &cmd) {
 
     cout << endl;
 
-    path repo = git_root().unwrap();
+    path root = find_root();
 
-    path site = repo / "docs" / "html";
+    path site = root / "docs" / "html";
     int port = DEFAULT_SERVER_PORT;
 
     auto port_arg = cmd.find_long("port");
@@ -229,7 +247,7 @@ int serve(CliCommand &cmd) {
     auto server_fut = Cmd({"python3", "-m", "http.server", to_string(port), "-d", site}).run_async();
 
     if (watch_arg && watch_arg->set) {
-        vector<path> watch_paths = {repo / "bob.hpp", repo / "docs" / "Doxyfile"};
+        vector<path> watch_paths = {root / "bob.hpp", root / "docs" / "Doxyfile"};
         vector<struct stat> stats = {};
 
         // Initialize stats for each path
