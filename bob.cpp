@@ -115,8 +115,11 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
     runner.capture_output(true);
     runner.run();
 
-    if (!runner.any_failed()) {
-        cout << term::GREEN << term::BOLD << "\nAll tests succeeded!" << term::RESET << endl;
+    if (runner.all_succeded()) {
+        cout << term::GREEN << term::BOLD;
+        if (action == Action::Record) cout << "\nOutput recorded successfully!";
+        else                          cout << "\nAll tests succeeded!";
+        cout << term::RESET << endl;
         return EXIT_SUCCESS;
     }
 
