@@ -1,5 +1,5 @@
 #define BOB_IMPLEMENTATION
-#include "../../bob.hpp"
+#include "bob.hpp"
 
 using namespace std;
 using namespace bob;

@@ -13,7 +13,7 @@ using namespace std;
 
 const int DEFAULT_SERVER_PORT = 8000;
 
-const path TEST_DIR = path(__FILE__).parent_path().parent_path() / "simple-examples";
+const path TEST_DIR = path(__FILE__).parent_path().parent_path() / "examples";
 
 enum class Action {
     Record,
@@ -32,6 +32,7 @@ vector<path> find_test_cases() {
     for (const auto &entry : fs::directory_iterator(TEST_DIR)) {
         path test_case = entry.path();
         if (fs::is_directory(test_case)) {
+            if (!fs::exists(test_case / "test.list")) continue;
             cases.push_back(test_case);
         }
     }
