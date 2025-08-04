@@ -5,26 +5,31 @@ import subprocess
 SRC = "./bob.cpp"
 BIN = "./bob"
 
-# Checkout submodules
-subprocess.run(["git", "submodule", "update", "--init", "--recursive"], check=True)
+def bob(*args):
+    if not os.path.exists(BIN):
+        print(f"Compiling {SRC} to {BIN}...")
+        subprocess.run(["g++", SRC, "-o", BIN], check=True)
+    subprocess.run([BIN, *args], check=True)
 
-# Check documentation
-subprocess.run([BIN, "doc", "-e"], check=True)
+def check_documentation() : bob("doc", "--error")
+def run_tests()           : bob("test")
+def run_doc_tests()       : bob("doc", "test")
+def generate_readme()     : bob("gen-readme")
 
-# Compile the test binary if it does not exist
-if not os.path.exists(BIN):
-    print(f"Compiling {SRC} to {BIN}...")
-    subprocess.run(["g++", SRC, "-o", BIN], check=True)
+def checkout_submodules():
+    subprocess.run(["git", "submodule", "update", "--init", "--recursive"], check=True)
 
-# Run tests
-subprocess.run([BIN, "test"], check=True)
+def check_uncomitted():
+    status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+    if status.stdout:
+        print("\nUncommitted changes detected. Please commit or stash them before pushing.")
+        print(status.stdout)
+        exit(1)
 
-# Run doc tests
-subprocess.run([BIN, "doc", "test"], check=True)
-
-# Check for uncommitted changes
-status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
-if status.stdout:
-    print("\nUncommitted changes detected. Please commit or stash them before pushing.")
-    print(status.stdout)
-    exit(1)
+if __name__ == "__main__":
+    checkout_submodules()
+    check_documentation()
+    run_tests()
+    run_doc_tests()
+    generate_readme()
+    check_uncomitted()

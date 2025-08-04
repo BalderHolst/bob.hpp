@@ -1,5 +1,4 @@
 #include <cstdlib>
-#include <istream>
 #define BOB_IMPLEMENTATION
 #include "bob.hpp"
 
@@ -435,6 +434,40 @@ void add_doc_commands(Cli &cli) {
                 "Watch for changes and rebuild the documentation automatically");
 }
 
+void add_readme_command(Cli &cli) {
+    cli.add_command("gen-readme", "Generate README.md from README.mdx", [](CliCommand &cmd) {
+        cmd.handle_help();
+
+        bool print = cmd.find_long("print")->set;
+
+        path root = find_root();
+        path readme_mdx = root / "README.mdx";
+        path readme_md = root / "README.md";
+
+        if (!fs::exists(readme_mdx)) {
+            PANIC("README.mdx file does not exist: " + readme_mdx.string());
+        }
+
+        Cmd txtx({"./txtx.py", readme_mdx.string()}, root);
+        txtx.silent = !print;
+        int exit_code = txtx.run();
+
+        if (exit_code != 0) {
+            cerr << term::RED << "Failed to generate README.md from README.mdx:" << term::RESET << endl;
+            cerr << txtx.output_str << endl;
+            return EXIT_FAILURE;
+        }
+
+        // Write README.md
+        ofstream output(readme_md);
+        output << txtx.output_str << endl;
+
+        return EXIT_SUCCESS;
+    })
+        .add_flag('p', "print", CliFlagType::Bool,
+                "Print the generated README.md content instead of writing it to a file");
+}
+
 
 int main(int argc, char* argv[]) {
     GO_REBUILD_YOURSELF(argc, argv);
@@ -443,6 +476,7 @@ int main(int argc, char* argv[]) {
 
     add_test_commands(cli);
     add_doc_commands(cli);
+    add_readme_command(cli);
 
     return cli.serve();
 }
