@@ -15,3 +15,5 @@ jobs:
         run: g++ bob.cpp -o bob
       - name: Run tests
         run: ./bob test
+      - name: Run doc tests
+        run: ./bob doc test

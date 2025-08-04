@@ -1,10 +1,12 @@
 #include <cstdlib>
+#include <istream>
 #define BOB_IMPLEMENTATION
 #include "bob.hpp"
 
 #include <filesystem>
 #include <iostream>
 #include <thread>
+#include <fstream>
 
 using namespace bob;
 using namespace std;
@@ -149,6 +151,120 @@ int test(CliCommand &cmd, Action action, path test_case = "") {
     cout << term::RESET;
 
     return EXIT_FAILURE;
+}
+
+const string CODE_MARKER = "```";
+const string DOCS_MARKER = "//!";
+
+struct CodeBlock {
+    size_t start_line;
+    string content;
+    path file_path;
+};
+
+int doc_test(CliCommand &cmd) {
+
+    path doctest_dir = find_root() / "docs" / "doctest";
+
+    cmd.handle_help();
+
+    const path HEADER = path(__FILE__).parent_path() / "bob.hpp";
+
+    // Read header file line by line
+    if (!fs::exists(HEADER)) {
+        PANIC("Header file '" + HEADER.string() + "' does not exist. ");
+    }
+
+    vector<CodeBlock> code_blocks;
+
+    std::ifstream header_file(HEADER);
+    size_t line_nr = 0;
+    bool in_code_block = false;
+    for (std::string line; std::getline(header_file, line);) {
+        line_nr++;
+        if (line.find(CODE_MARKER) != std::string::npos) {
+            if (!in_code_block) {
+                code_blocks.push_back(CodeBlock{line_nr, ""});
+                in_code_block = true;
+            } else {
+                in_code_block = false;
+            }
+        } else if (in_code_block) {
+            // Add line to the current code block
+            if (!code_blocks.empty()) {
+                int start = line.find(DOCS_MARKER) + DOCS_MARKER.length();
+                if (line[start] == ' ') start++; // Skip leading space after marker
+                if (start > line.length()) start = 0;
+                code_blocks.back().content += line.substr(start) + "\n";
+            }
+        }
+
+    }
+
+    cout << term::BOLD << "\nFound " << code_blocks.size() << " code blocks in the header file.\n" << term::RESET << endl;
+
+    mkdirs(doctest_dir);
+
+    // Generate doctest files
+    path rel_header_path = fs::relative(HEADER, doctest_dir);
+    for (auto &block : code_blocks) {
+        path test_file = doctest_dir / ("block-" + to_string(block.start_line) + ".cpp");
+
+        std::ofstream out(test_file);
+        if (!out.is_open()) {
+            PANIC("Could not open file '" + test_file.string() + "' for writing.");
+        }
+        out << "// Test case generated from " << HEADER.string() << " at line " << block.start_line << "\n";
+        out << "#define BOB_IMPLEMENTATION"                      << "\n";
+        out << "#include \"" << rel_header_path.string() << "\"" << "\n";
+        out << "using namespace::bob;"                           << "\n";
+        out << "#include <filesystem>"                           << "\n";
+        out << "using std::filesystem::path;"                    << "\n";
+        out << "using namespace::std;"                           << "\n";
+        out << ""                                                << "\n";
+        out << "int main(int argc, char *argv[]) {"              << "\n";
+        out << block.content                                     << "\n";
+        out << "    return 0;"                                   << "\n";
+        out << "}"                                               << "\n";
+        out.close();
+
+        block.file_path = test_file;
+    }
+
+    // Compile the generated test files
+    CmdRunner runner;
+    for (const auto &block : code_blocks) {
+        if (block.file_path.empty()) continue; // Skip empty blocks
+        runner.push(Cmd({"g++", "-o", block.file_path.stem().string(), block.file_path.string()}, doctest_dir));
+    }
+    runner.run();
+
+    size_t errors = 0;
+    size_t w = term_width();
+    if (runner.any_failed()) {
+        cout << term::RED << "\nSome documentation examples failed to compile:" << term::RESET << endl;
+        for (int i = 0; i < runner.size(); i++) {
+            auto &cmd = runner.cmds[i];
+            auto &block = code_blocks[i];
+            if (runner.exit_codes[i] != 0) {
+                label(w, HEADER.string() + ":" + to_string(block.start_line), term::RED);
+                cout << cmd.output_str << endl;
+                errors++;
+            }
+        }
+
+        cout << term::RED;
+        cout << "\n" << errors << " out of " << code_blocks.size() << " examples failed to compile." << term::RESET << endl;
+        cout << term::RESET;
+
+        return EXIT_FAILURE;
+    }
+
+    cout << term::GREEN << term::BOLD;
+    cout << "\nAll documentation examples compiled successfully!";
+    cout << term::RESET << endl;
+
+    return EXIT_SUCCESS;
 }
 
 void add_test_commands(Cli &cli) {
@@ -305,6 +421,8 @@ int serve(CliCommand &cmd) {
 void add_doc_commands(Cli &cli) {
     auto &doc_cmd = cli.add_command("doc", "Generate documentation", document)
         .add_flag('e', "error", CliFlagType::Bool, "Treat warnings as errors");
+
+    doc_cmd.add_command("test", "Run doctests", doc_test);
 
     doc_cmd.add_command("serve", "Serve the documentation via a local web server", serve)
         .add_flag('p', "port",  CliFlagType::Value,

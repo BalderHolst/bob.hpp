@@ -50,7 +50,7 @@ namespace bob {
     //! @par Example
     //! ```
     //! if (bob::file_needs_rebuild("main.cpp", "main.o")) {
-    //!     compile("main.cpp");
+    //!     // Compile `main.cpp` to `main.o`
     //! }
     //! ```
     bool file_needs_rebuild(path input, path output);
@@ -203,7 +203,7 @@ namespace bob {
     //! Cmd cmd({"sleep", "3"}); // Heavy work
     //! CmdFuture fut = cmd.run_async();
     //! while (!fut.done) {
-    //!     cmd.poll_future(fut));
+    //!     cmd.poll_future(fut);
     //!     std::cout << "waiting for command to finish...\n";
     //!     usleep(100000); // sleep for 100ms
     //! }
@@ -258,24 +258,13 @@ namespace bob {
         //! @par Example
         //! ```cpp
         //! const vector<string> FLAGS = {"-Wall", "-O2"};
+        //! const string COMPILER = "g++";
         //! Cmd cmd;
         //! cmd
-        //!     .push_many({"g++", "app.c", "-o", "app"});
+        //!     .push_many({COMPILER, "app.c", "-o", "app"})
         //!     .push_many(FLAGS);
         //! ```
         Cmd& push_many(const vector<string> &parts);
-
-        //! Adds multiple path parts to the command.
-        //!
-        //! @param parts The path parts to add.
-        //! @return Reference to this command.
-        //!
-        //! @par Example
-        //! ```cpp
-        //! Cmd cmd;
-        //! cmd.push_many({git_root() / "src" / "main.cpp"});
-        //! ```
-        Cmd& push_many(const vector<path> &parts);
 
         //! Creates a printable string representation of the command.
         //!
@@ -294,6 +283,7 @@ namespace bob {
         //!
         //! @par Example
         //! ```cpp
+        //! Cmd cmd({"sleep", "3"}); // Heavy work
         //! CmdFuture fut = cmd.run_async();
         //! // Do other work, then await or poll fut...
         //! ```
@@ -344,9 +334,12 @@ namespace bob {
         //!
         //! @par Example
         //! ```cpp
-        //! if (cmd.poll_future(fut)) {
-        //!     std::cout << "Done\n";
+        //! Cmd cmd({"sleep", "3"}); // Heavy work
+        //! CmdFuture fut = cmd.run_async();
+        //! while (!cmd.poll_future(fut)) {
+        //!     std::cout << "Waiting..." << std::endl;
         //! }
+        //! std::cout << "Done!" << std::endl;;
         //! ```
         bool poll_future(CmdFuture &fut);
 
@@ -924,11 +917,6 @@ namespace bob {
         return *this;
     }
 
-    Cmd& Cmd::push_many(const vector<path> &parts) {
-        for (const auto &part : parts) push(part.string());
-        return *this;
-    }
-
     Cmd& Cmd::push_many(const vector<string> &parts) {
         for (const auto &part : parts) {
             this->parts.push_back(part);
@@ -943,7 +931,8 @@ namespace bob {
             result += part;
         }
         if (root != ".") {
-            result = "[from '" + root.string() + "'] " + result;
+            path rel_root = fs::relative(root, fs::current_path());
+            result = "[from '" + rel_root.string() + "'] " + result;
         }
         return result;
     }

@@ -16,8 +16,11 @@ if not os.path.exists(BIN):
     print(f"Compiling {SRC} to {BIN}...")
     subprocess.run(["g++", SRC, "-o", BIN], check=True)
 
-# Run the test binary
+# Run tests
 subprocess.run([BIN, "test"], check=True)
+
+# Run doc tests
+subprocess.run([BIN, "doc", "test"], check=True)
 
 # Check for uncommitted changes
 status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)

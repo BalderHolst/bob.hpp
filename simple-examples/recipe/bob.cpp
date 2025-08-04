@@ -21,7 +21,11 @@ const auto build_objs = Recipe({"./build/main.o", "./build/other.o"}, {"./src/ma
 const auto build_main = Recipe({"main"}, {"./build/main.o", "./build/other.o"},
     [](const vector<path> &inputs, const vector<path> &outputs) {
     assert(outputs.size() == 1);
-    Cmd({CC, "-o", outputs[0]}).push_many(inputs).run();
+    auto cmd = Cmd({CC, "-o", outputs[0]});
+    for (const auto &input : inputs) {
+        cmd.push(input.string());
+    }
+    cmd.run();
 });
 
 int main(int argc, char *argv[]) {
