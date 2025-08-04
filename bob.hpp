@@ -206,7 +206,7 @@ namespace bob {
         bool kill();
     };
 
-    //! Represents a command to be executed in the operating system shell.
+    //! \brief Represents a command to be executed in the operating system shell.
     //!
     //! This class allows building command lines from parts (strings or paths),
     //! running them synchronously or asynchronously, and optionally capturing their output.
@@ -380,7 +380,7 @@ namespace bob {
         //! ```
         int await_future(CmdFuture &fut);
     };
-
+    //! \example minimal/bob.cpp
 
     //! A class for running many commands in parallel.
     class CmdRunner {
@@ -446,6 +446,7 @@ namespace bob {
         //! Sets the `capture_output` flag for all commands in the runner.
         void capture_output(bool capture = true);
     };
+    //! \example parallel-cmds/bob.cpp
 
     //! A list of file paths.
     typedef std::vector<fs::path> Paths;
@@ -470,6 +471,7 @@ namespace bob {
         //! Builds the outputs from the inputs using the recipe function.
         void build() const;
     };
+    //! \example recipe/bob.cpp
 
     //! Types of command line flags.
     enum class CliFlagType {
@@ -522,7 +524,9 @@ namespace bob {
     //! A function that can be used to handle a command in a CLI.
     typedef std::function<int(CliCommand&)> CliCommandFunc;
 
-    //! Represents a CLI command
+    //! \brief Represents a CLI command
+    //!
+    //! @see Cli
     class CliCommand {
     public:
         //! Path to the command, e.g. {"./bob", "test", "run"}
@@ -609,6 +613,7 @@ namespace bob {
         //! Run the CLI and handle the commands.
         int serve();
     };
+    //! \example cli/bob.cpp
 
     //! Terminal related constants and functions.
     namespace term {
