@@ -1,6 +1,6 @@
 #include <cstdlib>
 #define BOB_IMPLEMENTATION
-#define BOB_REBUILD_CMD { "g++", "-o", "<PROGRAM>", "<SOURCE>" }
+#define BOB_REBUILD_CMD { "g++", "-o", "_PROGRAM_", "_SOURCE_" }
 #include "bob.hpp"
 
 #include <filesystem>
@@ -303,10 +303,38 @@ void add_test_commands(Cli &cli) {
 
 const string WARNING_LABEL = "[WARNING] ";
 
+int gen_readme(bool print = false) {
+    path root = find_root();
+    path readme_mdx = root / "README.mdx";
+    path readme_md = root / "README.md";
+
+    if (!fs::exists(readme_mdx)) {
+        PANIC("README.mdx file does not exist: " + readme_mdx.string());
+    }
+
+    Cmd txtx({"./txtx.py", readme_mdx.string()}, root);
+    txtx.silent = !print;
+    int exit_code = txtx.run();
+
+    if (exit_code != 0) {
+        cerr << term::RED << "Failed to generate README.md from README.mdx:" << term::RESET << endl;
+        cerr << txtx.output_str << endl;
+        return EXIT_FAILURE;
+    }
+
+    // Write README.md
+    ofstream output(readme_md);
+    output << txtx.output_str << endl;
+
+    return EXIT_SUCCESS;
+}
+
 int document(CliCommand &cli_cmd) {
     cli_cmd.handle_help();
     ensure_installed({"git", "doxygen"});
     path root = find_root();
+
+    gen_readme();
 
     // Pull theme submodule
     Cmd({"git", "submodule", "update", "--init", "--recursive"}, root).check();
@@ -374,7 +402,11 @@ int serve(CliCommand &cmd) {
     auto server_fut = Cmd({"python3", "-m", "http.server", to_string(port), "-d", site}).run_async();
 
     if (watch_arg && watch_arg->set) {
-        vector<path> watch_paths = {root / "bob.hpp", root / "docs" / "Doxyfile"};
+        vector<path> watch_paths = {
+            root / "bob.hpp",
+            root / "docs" / "Doxyfile",
+            root / "README.mdx",
+        };
         vector<fs::file_time_type> stats = {};
 
         // Initialize stats for each path
@@ -432,32 +464,8 @@ void add_doc_commands(Cli &cli) {
 void add_readme_command(Cli &cli) {
     cli.add_command("gen-readme", "Generate README.md from README.mdx", [](CliCommand &cmd) {
         cmd.handle_help();
-
         bool print = cmd.find_long("print")->set;
-
-        path root = find_root();
-        path readme_mdx = root / "README.mdx";
-        path readme_md = root / "README.md";
-
-        if (!fs::exists(readme_mdx)) {
-            PANIC("README.mdx file does not exist: " + readme_mdx.string());
-        }
-
-        Cmd txtx({"./txtx.py", readme_mdx.string()}, root);
-        txtx.silent = !print;
-        int exit_code = txtx.run();
-
-        if (exit_code != 0) {
-            cerr << term::RED << "Failed to generate README.md from README.mdx:" << term::RESET << endl;
-            cerr << txtx.output_str << endl;
-            return EXIT_FAILURE;
-        }
-
-        // Write README.md
-        ofstream output(readme_md);
-        output << txtx.output_str << endl;
-
-        return EXIT_SUCCESS;
+        return gen_readme(print);
     })
         .add_flag('p', "print", CliFlagType::Bool,
                 "Print the generated README.md content instead of writing it to a file");

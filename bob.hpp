@@ -50,7 +50,7 @@ namespace bob {
     using fs::path;
 
     #ifndef BOB_REBUILD_CMD
-        #define BOB_REBUILD_CMD { "g++", "-o", "<PROGRAM>", "<SOURCE>" }
+        #define BOB_REBUILD_CMD { "g++", "-o", "_PROGRAM_", "_SOURCE_" }
     #endif
 
     //! Macro to rebuild and rerun the current executable from its source code if needed.
@@ -66,7 +66,7 @@ namespace bob {
     //!
     //! This class allows specifying how to rebuild the current executable
     //! `parts` is a vector of strings that represent the command line parts.
-    //! The special strings `<PROGRAM>` and `<SOURCE>` can be used to
+    //! The special strings `_PROGRAM_` and `_SOURCE_` can be used to
     //! represent the program name and source file name respectively.
     //! By default, these are set to "bob" and "bob.cpp".
     //!
@@ -77,7 +77,7 @@ namespace bob {
     //! @par Example
     //! ```cpp
     //! // Specify the desired rebuild command.
-    //! RebuildConfig config({ "g++", "-o", "<PROGRAM>", "<SOURCE>", "-Wall" });
+    //! RebuildConfig config({ "g++", "-o", "_PROGRAM_", "_SOURCE_", "-Wall" });
     //!
     //! // Create a run-able command. Program and source files can be specified here if needed.
     //! Cmd cmd = config.cmd();
@@ -87,10 +87,10 @@ namespace bob {
     //! ```
     struct RebuildConfig {
         //! Special string to represent the program name in the command parts.
-        const std::string_view PROGRAM = "<PROGRAM>";
+        const std::string_view PROGRAM = "_PROGRAM_";
 
         //! Special string to represent the source file name in the command parts.
-        const std::string_view SOURCE  = "<SOURCE>";
+        const std::string_view SOURCE  = "_SOURCE_";
 
         //! A vector of strings representing the command parts before substitution.
         vector<string> parts;
@@ -101,7 +101,7 @@ namespace bob {
         //! Create a rebuild configuration with the given parts.
         RebuildConfig(vector<string> &&parts) : parts(std::move(parts)) {}
 
-        //! Create a `Cmd` object from this configuration. The `<PROGRAM>` and `<SOURCE>` placeholders
+        //! Create a `Cmd` object from this configuration. The `_PROGRAM_` and `_SOURCE_` placeholders
         //! will be replaced with the provided `program` and `source` arguments.
         Cmd cmd(string source = "bob.cpp", string program = "bob") const;
     };
