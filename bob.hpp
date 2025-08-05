@@ -33,14 +33,14 @@
 #include <fcntl.h>
 #include <string>
 #include <vector>
-#include <sys/stat.h>
+#include <thread>
+#include <functional>
+
 #include <sys/wait.h>
 #include <sys/select.h>
-#include <functional>
 #include <sys/ioctl.h>
 #include <stdio.h>
 #include <pty.h>
-#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -722,16 +722,8 @@ namespace bob {
 
         if (!fs::exists(output)) return true;
 
-        struct stat stats;
-        if (stat(output.c_str(), &stats) != 0) {
-            PANIC("Could not stat output file '" + output.string() + "': " + strerror(errno));
-        }
-        time_t output_mtime = stats.st_mtime;
-
-        if (stat(input.c_str(), &stats) != 0) {
-            PANIC("Could not stat input file '" + input.string() + "': " + strerror(errno));
-        }
-        time_t input_mtime = stats.st_mtime;
+        auto output_mtime = fs::last_write_time(output);
+        auto input_mtime  = fs::last_write_time(input);
 
         return output_mtime < input_mtime;
     }

@@ -374,22 +374,18 @@ int serve(CliCommand &cmd) {
 
     if (watch_arg && watch_arg->set) {
         vector<path> watch_paths = {root / "bob.hpp", root / "docs" / "Doxyfile"};
-        vector<struct stat> stats = {};
+        vector<fs::file_time_type> stats = {};
 
         // Initialize stats for each path
         cout << "Watching for changes in: " << endl;
         path cwd = fs::current_path();
         for (const auto &p : watch_paths) {
             cout << "    ./" << fs::relative(p, cwd).string() << endl;
-            struct stat s;
-            if (stat(p.c_str(), &s) != 0) {
-                PANIC("Could not stat file '" + p.string() + "': " + strerror(errno));
-            }
-            stats.push_back(s);
+            auto mtime = fs::last_write_time(p);
+            stats.push_back(mtime);
         }
 
         assert(watch_paths.size() == stats.size());
-        struct stat new_stat;
 
         // Event loop to watch for changes
         for (bool done = false; !done;) {
@@ -397,15 +393,13 @@ int serve(CliCommand &cmd) {
 
             for (int i = 0; i < watch_paths.size(); i++) {
                 path &p = watch_paths[i];
-                struct stat &s = stats[i];
-                if (stat(p.c_str(), &new_stat) != 0) {
-                    PANIC("Could not stat file '" + p.string() + "': " + strerror(errno));
-                }
-                if (new_stat.st_mtime == s.st_mtime) continue; // No change
+                auto &mtime = stats[i];
+                auto new_mtime = fs::last_write_time(p);
+                if (mtime == new_mtime) continue; // No change
 
                 cout << "Change detected in " << p.string() << ", rebuilding documentation..." << endl;
                 change_detected = true;
-                s = new_stat;
+                mtime = new_mtime; // Update the last modified time
             }
 
             if (change_detected) {
