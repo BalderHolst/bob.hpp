@@ -1,5 +1,6 @@
 #include <cstdlib>
 #define BOB_IMPLEMENTATION
+#define BOB_REBUILD_CMD { "g++", "-o", "<PROGRAM>", "<SOURCE>" }
 #include "bob.hpp"
 
 #include <filesystem>

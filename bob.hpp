@@ -29,6 +29,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <thread>
 #include <functional>
@@ -48,19 +49,71 @@ namespace bob {
     using std::vector;
     using fs::path;
 
+    #ifndef BOB_REBUILD_CMD
+        #define BOB_REBUILD_CMD { "g++", "-o", "<PROGRAM>", "<SOURCE>" }
+    #endif
+
     //! Macro to rebuild and rerun the current executable from its source code if needed.
     //! The new executable  will be run with the same arguments as the current one.
     //! This function is best used at the beginning of the `main` function.
-    #define GO_REBUILD_YOURSELF(argc, argv) bob::_go_rebuild_yourself(argc, argv, __FILE__)
+    #define GO_REBUILD_YOURSELF(argc, argv) bob::go_rebuild_yourself(argc, argv, __FILE__, bob::RebuildConfig(BOB_REBUILD_CMD))
+
+    // Forward declarations
+    class Cmd;
+    class CliCommand;
+
+    //! \brief Configuration for rebuilding the current executable.
+    //!
+    //! This class allows specifying how to rebuild the current executable
+    //! `parts` is a vector of strings that represent the command line parts.
+    //! The special strings `<PROGRAM>` and `<SOURCE>` can be used to
+    //! represent the program name and source file name respectively.
+    //! By default, these are set to "bob" and "bob.cpp".
+    //!
+    //! @note This class is used indirectly by the `GO_REBUILD_YOURSELF` macro.
+    //! To customize the rebuild command in used by the macro, you can define
+    //! `BOB_REBUILD_CMD` before including the `bob.hpp` header file.
+    //!
+    //! @par Example
+    //! ```cpp
+    //! // Specify the desired rebuild command.
+    //! RebuildConfig config({ "g++", "-o", "<PROGRAM>", "<SOURCE>", "-Wall" });
+    //!
+    //! // Create a run-able command. Program and source files can be specified here if needed.
+    //! Cmd cmd = config.cmd();
+    //!
+    //! // Runs: g++ -o my_program my_source.cpp -Wall
+    //! cmd.run();
+    //! ```
+    struct RebuildConfig {
+        //! Special string to represent the program name in the command parts.
+        const std::string_view PROGRAM = "<PROGRAM>";
+
+        //! Special string to represent the source file name in the command parts.
+        const std::string_view SOURCE  = "<SOURCE>";
+
+        //! A vector of strings representing the command parts before substitution.
+        vector<string> parts;
+
+        //! Create an empty rebuild configuration.
+        RebuildConfig() = default;
+
+        //! Create a rebuild configuration with the given parts.
+        RebuildConfig(vector<string> &&parts) : parts(std::move(parts)) {}
+
+        //! Create a `Cmd` object from this configuration. The `<PROGRAM>` and `<SOURCE>` placeholders
+        //! will be replaced with the provided `program` and `source` arguments.
+        Cmd cmd(string source = "bob.cpp", string program = "bob") const;
+    };
 
     //! Rebuilds the current executable from its source file. After building the new executable,
     //! it will run the new executable with the same arguments as the current one. This function
     //! is called with `GO_REBUILD_YOURSELF(argc, argv)` macro which provides the `source_file_name`
     //! argument automatically.
-    void _go_rebuild_yourself(int argc, char* argv[], path source_file_name);
+    void go_rebuild_yourself(int argc, char* argv[], path source_file_name);
 
     //! Runs the current executable and returns the exit status.
-    //! This is used in the `_go_rebuild_yourself(int argc, char * argv[], path source_file_name)` function.
+    //! This is used in the `go_rebuild_yourself(int argc, char * argv[], path source_file_name)` function.
     int run_yourself(fs::path bin, int argc, char* argv[]);
 
     //! Checks if an output file is older than its input file and needs to be rebuilt.
@@ -517,8 +570,6 @@ namespace bob {
     //! Prints the command line flags and their descriptions. Used for help output.
     void print_cli_args(const CliFlags &args);
 
-    class CliCommand;
-
     //! A function that can be used to handle a command in a CLI.
     typedef std::function<int(CliCommand&)> CliCommandFunc;
 
@@ -726,7 +777,18 @@ namespace bob {
         return output_mtime < input_mtime;
     }
 
-    void _go_rebuild_yourself(int argc, char* argv[], path source_file_name) {
+
+    Cmd RebuildConfig::cmd(string source, string program) const {
+        Cmd cmd;
+        for (const string &part : parts) {
+            if      (part == PROGRAM) cmd.push(program);
+            else if (part == SOURCE)  cmd.push(source);
+            else                      cmd.push(part);
+        }
+        return cmd;
+    }
+
+    void go_rebuild_yourself(int argc, char* argv[], path source_file_name, RebuildConfig config) {
         assert(argc > 0 && "No program provided via argv[0]");
 
         path root = fs::current_path();
@@ -749,8 +811,8 @@ namespace bob {
         auto rebuild_yourself = Recipe(
                 {binary_path},
                 {source_path, header_path},
-                [binary_path, source_path](Paths, Paths) {
-                    Cmd({"g++", "-o", binary_path.string(), source_path.string()}).check();
+                [binary_path, source_path, config](Paths, Paths) {
+                    config.cmd(source_path.string(), binary_path.string()).check();
                 }
         );
 
