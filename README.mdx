@@ -3,6 +3,8 @@ A C++ header only library used for defining build recipes without external depen
 
 Check out the [theme song](https://www.youtube.com/watch?v=HdVg-2jn2OU)!
 
+Documentation is found [here](https://balderholst.github.io/bob.hpp/).
+
 ## Idea
 This idea is directly stolen from [nob.h](https://github.com/tsoding/nob.h) by [mr. tsoding](https://github.com/tsoding) which is a very similar project, but for C.
 
