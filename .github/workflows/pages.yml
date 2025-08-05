@@ -6,6 +6,7 @@ on:
     paths:
       - bob.hpp
       - docs/Doxyfile
+      - README.md
 
 jobs:
   build:
