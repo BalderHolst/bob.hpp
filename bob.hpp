@@ -28,18 +28,16 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
-#include <cassert>
-#include <unistd.h>
-#include <fcntl.h>
 #include <string>
 #include <vector>
 #include <thread>
 #include <functional>
+#include <cassert>
 
+#include <unistd.h>
+#include <fcntl.h>
 #include <sys/wait.h>
-#include <sys/select.h>
 #include <sys/ioctl.h>
-#include <stdio.h>
 #include <pty.h>
 
 namespace fs = std::filesystem;
